@@ -7,7 +7,7 @@ ADMIN_KEY = "bita" # Key bảo mật cho web admin
 
 # Cấu hình Ngân hàng (Đã sửa lại mã BIN chuẩn)
 SEPAY_BANK_BIN = "970423"  # Mã BIN của tpbank. (MB: 970422, VCB: 970436)
-SEPAY_BANK_NUMBER = "1000405178" 
+SEPAY_BANK_NUMBER = "10004405178" 
 SEPAY_ACCOUNT_NAME = "NGUYEN CONG HOANG KHANG" 
 
 # Cấu hình Game
