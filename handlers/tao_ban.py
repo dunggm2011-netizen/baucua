@@ -10,10 +10,12 @@ def register_handlers(bot):
         u = message.from_user
         chat_id = message.chat.id
         diem = users_db.get_diem(u.id)
+        
         if diem < VON_LAM_CAI:
-            bot.reply_to(message, f"❌ Cần {VON_LAM_CAI:,} điểm để làm cái.")
+            bot.reply_to(message, f"❌ Bạn cần tối thiểu {VON_LAM_CAI:,} điểm để làm Cái.")
             return
 
+        # Xóa ván cũ
         ban_cu = games_db.get_ban_gan_nhat(chat_id)
         if ban_cu and ban_cu['message_ids']:
             for mid in ban_cu['message_ids'].split(","):
@@ -24,7 +26,16 @@ def register_handlers(bot):
         
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("🎲 SÓC", callback_data=f"soc_{ban_id}"))
-        msg = bot.send_message(chat_id, f"✅ Bàn #{ban_id} đã mở. Bạn là CÁI.\n⏰ Đặt cược trong {THOI_GIAN_CUOC} giây!\nGõ /cuoc để đặt cược.", reply_markup=kb)
+        
+        msg = bot.send_message(
+            chat_id, 
+            f"✅ Bàn #{ban_id} đã mở. Bạn là CÁI.\n"
+            f"⏰ Đặt cược trong {THOI_GIAN_CUOC} giây!\n"
+            f"👉 Người chơi gõ lệnh: `/cuoc <số tiền>`\n"
+            f"Hoặc bấm nút bên dưới để chọn.", 
+            reply_markup=kb,
+            parse_mode='Markdown'
+        )
         
         games_db.them_message_id(ban_id, msg.message_id)
         
