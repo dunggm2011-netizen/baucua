@@ -4,7 +4,6 @@ from database.db import get_conn
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 
 def register_handlers(bot):
-    
     # 1. MENU ADMIN KHI BẤM NÚT "⚙️ Admin"
     @bot.message_handler(func=lambda m: m.text == "⚙️ Admin")
     def admin_menu(message):
@@ -14,7 +13,7 @@ def register_handlers(bot):
         kb.row(KeyboardButton("📊 Top Người Chơi"), KeyboardButton("📋 Yêu Cầu Rút"))
         kb.row(KeyboardButton("⬅️ Quay lại Menu"))
         
-        bot.reply_to(message, "⚙️ **BẢNG ĐIỀU KHIỂN ADMIN**\nChọn thao tác:", reply_markup=kb, parse_mode='Markdown')
+        bot.reply_to(message, "⚙️ BẢNG ĐIỀU KHIỂN ADMIN\nChọn thao tác:", reply_markup=kb)
 
     # 2. XEM TOP NGƯỜI CHƠI
     @bot.message_handler(func=lambda m: m.text == "📊 Top Người Chơi")
@@ -29,11 +28,11 @@ def register_handlers(bot):
             bot.reply_to(message, "Chưa có người chơi nào.")
             return
             
-        text = "📊 **TOP 10 NGƯỜI CHƠI (Theo điểm):**\n\n"
+        text = "📊 TOP 10 NGƯỜI CHƠI (Theo điểm):\n\n"
         for i, u in enumerate(users, 1):
-            text += f"{i}. 👤 {u['ho_ten']} (`{u['user_id']}`) - 💰 {u['diem']:,} điểm\n"
+            text += f"{i}. 👤 {u['ho_ten']} ({u['user_id']}) - 💰 {u['diem']:,} điểm\n"
             
-        bot.reply_to(message, text, parse_mode='Markdown')
+        bot.reply_to(message, text)
 
     # 3. XEM DANH SÁCH YÊU CẦU RÚT ĐANG CHỜ
     @bot.message_handler(func=lambda m: m.text == "📋 Yêu Cầu Rút")
@@ -50,14 +49,14 @@ def register_handlers(bot):
             
         for r in reqs:
             text = (
-                f"🆔 **Mã YC:** `{r['id']}`\n"
-                f"👤 **User:** `{r['user_id']}`\n"
-                f"💸 **Rút:** {r['so_diem']} điểm ({r['so_diem']*10:,}đ)\n"
-                f"🏦 **STK:** `{r['stk']}`\n"
-                f"👉 Duyệt: `/duyetrut {r['id']}`\n"
-                f"👉 Từ chối: `/tuchoi {r['id']}`"
+                f"🆔 Mã YC: {r['id']}\n"
+                f"👤 User: {r['user_id']}\n"
+                f"💸 Rút: {r['so_diem']} điểm ({r['so_diem']*10:,}đ)\n"
+                f"🏦 STK: {r['stk']}\n"
+                f"👉 Duyệt: /duyetrut {r['id']}\n"
+                f"👉 Từ chối: /tuchoi {r['id']}"
             )
-            bot.send_message(message.chat.id, text, parse_mode='Markdown')
+            bot.send_message(message.chat.id, text)
 
     # 4. LỆNH CỘNG ĐIỂM THỦ CÔNG
     @bot.message_handler(commands=['congdiem'])
