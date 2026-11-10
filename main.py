@@ -2,6 +2,7 @@ import os
 import threading
 import sqlite3
 import json
+import asyncio
 from flask import Flask, request, jsonify, render_template_string
 from telegram import Update
 from telegram.ext import (
@@ -13,6 +14,15 @@ from database.db import init_db
 import database.games as games_db
 import database.users as users_db
 from handlers import start, tao_ban, dat_cuoc, soc, admin, nap_tien, rut_tien
+
+# ==========================================
+# SỬA LỖI EVENT LOOP CHO PYTHON 3.14 TRÊN RENDER
+# ==========================================
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+# ==========================================
 
 # 1. KHỞI TẠO FLASK & TELEGRAM
 flask_app = Flask(__name__)
@@ -118,8 +128,20 @@ if __name__ == '__main__':
         port = int(os.environ.get('PORT', 10000))
         webhook_url = os.environ.get('WEBHOOK_URL')
         print(f"🚀 Chạy Webhook Mode trên cổng {port}...")
-        telegram_app.run_webhook(listen="0.0.0.0", port=port, url_path=BOT_TOKEN, webhook_url=f"{webhook_url}/{BOT_TOKEN}", allowed_updates=Update.ALL_TYPES)
+        
+        # Chạy bot với Webhook
+        telegram_app.run_webhook(
+            listen="0.0.0.0", 
+            port=port, 
+            url_path=BOT_TOKEN, 
+            webhook_url=f"{webhook_url}/{BOT_TOKEN}", 
+            allowed_updates=Update.ALL_TYPES
+        )
     else:
         print("🚀 Chạy Polling Mode...")
-        threading.Thread(target=lambda: flask_app.run(host='0.0.0.0', port=5000), daemon=True).start()
+        # Chạy Flask ở một luồng riêng
+        def run_flask():
+            flask_app.run(host='0.0.0.0', port=5000)
+        
+        threading.Thread(target=run_flask, daemon=True).start()
         telegram_app.run_polling()
