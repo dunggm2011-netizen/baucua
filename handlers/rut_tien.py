@@ -1,40 +1,66 @@
-from telegram import Update
-from telegram.ext import ContextTypes, ConversationHandler
-import database.users as users_db
 from config import ADMIN_ID
+import database.users as users_db
 
-RUT_NHAP_DIEM = 1
-RUT_NHAP_STK = 2
+def register_handlers(bot):
+    # Lưu trạng thái chờ rút: {user_id: so_diem}
+    waiting_for_rut = {}
 
-async def bat_dau_rut(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    diem = users_db.get_diem(update.effective_user.id)
-    await update.message.reply_text(f"Điểm hiện tại: {diem}\nNhập số điểm muốn rút (quy đổi: 1000 điểm = 10.000đ):")
-    return RUT_NHAP_DIEM
+    @bot.message_handler(func=lambda m: m.text == "💸 Rút tiền")
+    def bat_dau_rut(message):
+        diem = users_db.get_diem(message.from_user.id)
+        waiting_for_rut[message.from_user.id] = None # Đánh dấu đang chờ nhập điểm
+        bot.reply_to(message, f"Điểm hiện tại: {diem}\nNhập số điểm muốn rút (quy đổi: 1000 điểm = 10.000đ):")
 
-async def xu_ly_diem_rut(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try: so_diem = int(update.message.text)
-    except: 
-        await update.message.reply_text("Số điểm không hợp lệ. Nhập lại:")
-        return RUT_NHAP_DIEM
+    @bot.message_handler(func=lambda m: m.from_user.id in waiting_for_rut and waiting_for_rut[m.from_user.id] is None)
+    def xu_ly_diem_rut(message):
+        if message.text.startswith('/'): return
+        try:
+            so_diem = int(message.text)
+        except:
+            bot.reply_to(message, "Số điểm không hợp lệ. Nhập lại:")
+            return
 
-    user_id = update.effective_user.id
-    if not users_db.tru_diem(user_id, so_diem):
-        await update.message.reply_text("Không đủ điểm. Nhập lại:")
-        return RUT_NHAP_DIEM
+        user_id = message.from_user.id
+        if not users_db.tru_diem(user_id, so_diem):
+            bot.reply_to(message, "Không đủ điểm. Nhập lại số điểm khác:")
+            return
 
-    context.user_data['rut_diem'] = so_diem
-    await update.message.reply_text("Nhập số tài khoản ngân hàng của bạn:")
-    return RUT_NHAP_STK
+        waiting_for_rut[user_id] = so_diem # Lưu số điểm, chuyển sang chờ nhập STK
+        bot.reply_to(message, "Nhập số tài khoản ngân hàng của bạn:")
 
-async def xu_ly_stk(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stk = update.message.text
-    so_diem = context.user_data.get('rut_diem', 0)
-    user_id = update.effective_user.id
+    @bot.message_handler(func=lambda m: m.from_user.id in waiting_for_rut and waiting_for_rut[m.from_user.id] is not None)
+    def xu_ly_stk(message):
+        if message.text.startswith('/'): return
+        stk = message.text
+        user_id = message.from_user.id
+        so_diem = waiting_for_rut.pop(user_id) # Lấy điểm ra và xóa trạng thái
 
-    await context.bot.send_message(chat_id=ADMIN_ID, text=f"💰 YÊU CẦU RÚT TIỀN\nUser: {user_id}\nĐiểm: {so_diem}\nQuy đổi: {so_diem * 10:,}đ\nSTK: {stk}\n\nDùng /duyetrut {user_id} {so_diem} để xác nhận.")
-    await update.message.reply_text("Đã gửi yêu cầu. Admin sẽ xử lý trong ít phút.")
-    return ConversationHandler.END
+        # Gửi tin nhắn cho Admin
+        admin_msg = (
+            f"💰 YÊU CẦU RÚT TIỀN\n"
+            f"User: {user_id}\n"
+            f"Điểm: {so_diem}\n"
+            f"Quy đổi: {so_diem * 10:,}đ\n"
+            f"STK: {stk}\n\n"
+            f"Dùng lệnh: /duyetrut {user_id} {so_diem} để xác nhận."
+        )
+        bot.send_message(ADMIN_ID, admin_msg)
+        bot.reply_to(message, "Đã gửi yêu cầu. Admin sẽ xử lý trong ít phút.")
 
-async def huy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Đã hủy.")
-    return ConversationHandler.END
+    # Lệnh Admin duyệt rút
+    @bot.message_handler(commands=['duyetrut'])
+    def duyet_rut(message):
+        if message.from_user.id != ADMIN_ID: return
+        try:
+            parts = message.text.split()
+            user_id = int(parts[1])
+            so_diem = int(parts[2])
+        except:
+            bot.reply_to(message, "Cú pháp: /duyetrut <user_id> <so_diem>")
+            return
+        
+        bot.reply_to(message, f"✅ Đã duyệt rút {so_diem} điểm cho user {user_id}.")
+        try:
+            bot.send_message(user_id, f"✅ Yêu cầu rút {so_diem} điểm đã được duyệt. Vui lòng kiểm tra tài khoản.")
+        except:
+            bot.send_message(ADMIN_ID, f"⚠️ Không thể nhắn tin cho user {user_id} (có thể họ đã chặn bot).")
