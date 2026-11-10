@@ -1,6 +1,8 @@
 import threading
 import os
 import json
+import hmac
+import hashlib
 from flask import Flask, request, jsonify
 import telebot
 from config import BOT_TOKEN, ADMIN_ID, ADMIN_KEY, DB_PATH
@@ -24,17 +26,35 @@ rut_tien.register_handlers(bot)
 admin.register_handlers(bot)
 
 # --- FLASK ROUTES ---
+
 @app.route('/sepay-webhook', methods=['POST'])
 def sepay_webhook():
+    # ==========================================
+    # CẤU HÌNH API KEY CỦA BẠN TẠI ĐÂY
+    API_KEY_SEPAY = "DMAS9CFVPYR8ZHSLGU6UBRJOKWKQXB2TCIBL00WYFI3LRODNNC2HJEJRFSGKA1PO"
+    # ==========================================
+
+    # Kiểm tra bảo mật (nếu SePay có gửi kèm Header)
+    auth_header = request.headers.get('Authorization')
+    if auth_header:
+        token = auth_header.replace('Bearer ', '').strip()
+        if token != API_KEY_SEPAY:
+            return jsonify({"error": "Unauthorized: Sai API Key"}), 401
+    
+    # Xử lý dữ liệu giao dịch
     data = request.json
-    if not data or data.get('transferType') != 'in': return jsonify({"success": True}), 200
+    if not data or data.get('transferType') != 'in': 
+        return jsonify({"success": True}), 200
+        
     content = data.get('content', '')
     ma_don = next((word for word in content.split() if word.startswith('NAP')), None)
+    
     if ma_don:
         gd = games_db.get_giao_dich_by_ma(ma_don)
         if gd and gd['trang_thai'] == 'cho':
             users_db.cong_diem(gd['user_id'], gd['so_diem'])
             games_db.cap_nhat_giao_dich(ma_don, 'done')
+            
     return jsonify({"success": True}), 200
 
 @app.route('/health', methods=['GET'])
