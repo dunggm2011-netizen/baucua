@@ -1,4 +1,6 @@
 import requests
+from io import BytesIO
+from PIL import Image
 from config import SEPAY_BANK_BIN, SEPAY_BANK_NUMBER, SEPAY_ACCOUNT_NAME, PHI_NAP
 import database.games as games_db
 
@@ -25,21 +27,30 @@ def register_handlers(bot):
         user_id = message.from_user.id
         ma_don = f"NAP{user_id}{so_tien}"
         
-        # Link VietQR
         qr_url = f"https://img.vietqr.io/image/{SEPAY_BANK_BIN}-{SEPAY_BANK_NUMBER}-compact2.png?amount={so_tien}&addInfo={ma_don}&accountName={SEPAY_ACCOUNT_NAME}"
         
         so_diem_nhan = int(so_tien / 10 * (1 - PHI_NAP))
         games_db.luu_giao_dich(user_id, "nap", so_tien, so_diem_nhan, ma_don)
 
         try:
-            # Bot tự tải ảnh từ VietQR về dưới dạng dữ liệu (bytes)
+            # Tải ảnh
             response = requests.get(qr_url, timeout=15)
             response.raise_for_status()
             
-            # Gửi file ảnh vừa tải cho người dùng
+            # Mở ảnh bằng Pillow và chuyển sang RGB (JPEG) để Telegram chắc chắn đọc được
+            img = Image.open(BytesIO(response.content))
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+                
+            # Lưu ảnh vào bộ nhớ tạm dưới dạng JPEG
+            bio = BytesIO()
+            bio.name = 'qr_code.jpg'
+            img.save(bio, 'JPEG', quality=95)
+            bio.seek(0)
+            
             bot.send_photo(
                 message.chat.id, 
-                photo=response.content, 
+                photo=bio, 
                 caption=f"✅ Tạo đơn nạp thành công!\n\nQuét QR để nạp: {so_tien:,}đ\nNội dung CK: {ma_don}\nĐiểm nhận: {so_diem_nhan} (đã trừ 2% phí)\n\nSau khi chuyển khoản, điểm sẽ tự động cộng."
             )
         except Exception as e:
