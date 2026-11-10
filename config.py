@@ -2,14 +2,12 @@ import os
 
 # Bắt buộc phải điền
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8077955829:AAHHkj9UfheUOx19dfQU-KCaXvSkJz7m92A")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "7564889663")) # ID Telegram của bạn
+ADMIN_ID = int(os.getenv("ADMIN_ID", "8183105705")) # ID Telegram của bạn
 ADMIN_KEY = "bita" # Key bảo mật cho web admin
 
-# Cấu hình Ngân hàng (SePay)
-SEPAY_BANK_BIN = "970436"  # Mã BIN ngân hàng (VD: 970436 là Vietcombank)
-SEPAY_BANK_NUMBER = "0123456789" # Số tài khoản
-SEPAY_ACCOUNT_NAME = "NGUYEN VAN A" # Tên chủ tài khoản
-
+SEPAY_BANK_BIN = "2003"  
+SEPAY_BANK_NUMBER = "1000405178" 
+SEPAY_ACCOUNT_NAME = "NGUYEN CONG HOANG KHANG" 
 # Cấu hình Game
 VON_LAM_CAI = 100000  # 100.000 điểm = 1.000.000 VNĐ
 THOI_GIAN_CUOC = 40
