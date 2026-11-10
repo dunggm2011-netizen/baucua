@@ -1,4 +1,5 @@
 import os
+from telebot.types import InputMediaPhoto
 from config import TEN_CON_VAT, IMG_DIR
 import database.users as users_db
 import database.games as games_db
@@ -11,30 +12,32 @@ def register_handlers(bot):
         ban_id = int(call.data.replace("soc_", ""))
         ban = games_db.get_ban(ban_id)
 
-        # CHỈ NGƯỜI TẠO BÀN (CÁI) MỚI ĐƯỢC SÓC
+        # Phân quyền: chỉ Cái mới được Sóc
         if ban['cai_id'] != call.from_user.id:
             bot.answer_callback_query(call.id, "❌ Chỉ người tạo bàn (Cái) mới được phép Sóc!", show_alert=True)
             return
             
-        if ban['trang_thai'] not in ('dang_cho', 'het_gio'):
-            bot.answer_callback_query(call.id, "Bàn này đã sóc rồi!", show_alert=True)
+        if ban['trang_thai'] == 'da_xoa':
+            bot.answer_callback_query(call.id, "Bàn này đã bị xoá!", show_alert=True)
             return
 
         ket_qua = media.random_ket_qua()
-        games_db.ket_thuc_ban(ban_id, ",".join(ket_qua))
+        games_db.ket_thuc_ban(ban_id, ",".join(ket_qua)) # Đánh dấu đã sóc
         bot.answer_callback_query(call.id)
         
-        # Gửi tin nhắn chữ
         bot.send_message(call.message.chat.id, f"🎲 KẾT QUẢ: {' - '.join(TEN_CON_VAT[c] for c in ket_qua)}")
 
-        # Gửi 3 hình ảnh kết quả
+        # Gửi 3 tấm ảnh chung 1 tin nhắn (Album)
+        media_group = []
         for con in ket_qua:
             path = os.path.join(IMG_DIR, f'{con}.jpg')
             if os.path.exists(path):
-                with open(path, 'rb') as f:
-                    bot.send_photo(call.message.chat.id, f, caption=TEN_CON_VAT[con])
+                media_group.append(InputMediaPhoto(open(path, 'rb'), caption=TEN_CON_VAT[con]))
             else:
                 bot.send_message(call.message.chat.id, f"⚠️ Lỗi: Không tìm thấy ảnh {con}.jpg")
+                
+        if media_group:
+            bot.send_media_group(call.message.chat.id, media_group)
 
         # Tính điểm
         danh_sach = games_db.get_cuoc_cua_ban(ban_id)
@@ -59,3 +62,4 @@ def register_handlers(bot):
             text += f"\n💸 Nhà cái {ban['cai_id']} đã trả {tong_tra_player} điểm."
             
         bot.send_message(call.message.chat.id, text)
+        bot.send_message(call.message.chat.id, "👉 Bấm SÓC để chơi ván mới hoặc Xoá bàn để kết thúc.")
