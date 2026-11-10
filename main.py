@@ -126,7 +126,7 @@ if __name__ == '__main__':
 
     if os.environ.get('RENDER'):
         port = int(os.environ.get('PORT', 10000))
-        webhook_url = os.environ.get('WEBHOOK_URL')
+        webhook_url = os.environ.get('https://baucuabita.onrender.com')
         print(f"🚀 Chạy Webhook Mode trên cổng {port}...")
         
         # Chạy bot với Webhook
