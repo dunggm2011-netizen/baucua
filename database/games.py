@@ -1,5 +1,6 @@
 from .db import get_conn
 
+# --- XỬ LÝ BÀN CHƠI ---
 def tao_ban(cai_id, chat_id):
     conn = get_conn()
     cur = conn.execute('INSERT INTO bans (cai_id, chat_id) VALUES (?,?)', (cai_id, chat_id))
@@ -14,17 +15,29 @@ def get_ban(ban_id):
     conn.close()
     return row
 
+def get_ban_gan_nhat(chat_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM bans WHERE chat_id=? ORDER BY ban_id DESC LIMIT 1", (chat_id,)).fetchone()
+    conn.close()
+    return row
+
 def get_ban_dang_cho(chat_id):
     conn = get_conn()
     row = conn.execute("SELECT * FROM bans WHERE chat_id=? AND trang_thai='dang_cho' ORDER BY ban_id DESC LIMIT 1", (chat_id,)).fetchone()
     conn.close()
     return row
 
-def get_ban_gan_nhat(chat_id):
+def khoa_ban(ban_id):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM bans WHERE chat_id=? ORDER BY ban_id DESC LIMIT 1", (chat_id,)).fetchone()
+    conn.execute("UPDATE bans SET trang_thai='het_gio' WHERE ban_id=?", (ban_id,))
+    conn.commit()
     conn.close()
-    return row
+
+def ket_thuc_ban(ban_id, ket_qua):
+    conn = get_conn()
+    conn.execute("UPDATE bans SET trang_thai='ket_thuc', ket_qua=? WHERE ban_id=?", (ket_qua, ban_id))
+    conn.commit()
+    conn.close()
 
 def them_message_id(ban_id, message_id):
     conn = get_conn()
@@ -35,12 +48,7 @@ def them_message_id(ban_id, message_id):
     conn.commit()
     conn.close()
 
-def khoa_ban(ban_id):
-    conn = get_conn()
-    conn.execute("UPDATE bans SET trang_thai='het_gio' WHERE ban_id=?", (ban_id,))
-    conn.commit()
-    conn.close()
-
+# --- XỬ LÝ CƯỢC ---
 def luu_cuoc(ban_id, user_id, cua, so_diem):
     conn = get_conn()
     conn.execute('INSERT INTO cuoc (ban_id, user_id, cua, so_diem) VALUES (?,?,?,?)', (ban_id, user_id, cua, so_diem))
@@ -53,12 +61,7 @@ def get_cuoc_cua_ban(ban_id):
     conn.close()
     return rows
 
-def ket_thuc_ban(ban_id, ket_qua):
-    conn = get_conn()
-    conn.execute("UPDATE bans SET trang_thai='ket_thuc', ket_qua=? WHERE ban_id=?", (ket_qua, ban_id))
-    conn.commit()
-    conn.close()
-
+# --- XỬ LÝ GIAO DỊCH NẠP TIỀN ---
 def luu_giao_dich(user_id, loai, so_tien, so_diem, ma_don):
     conn = get_conn()
     conn.execute('''INSERT INTO giao_dich (user_id, loai, so_tien, so_diem, ma_don) VALUES (?,?,?,?,?)''', (user_id, loai, so_tien, so_diem, ma_don))
