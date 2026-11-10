@@ -8,8 +8,8 @@ def register_handlers(bot):
         bot.register_next_step_handler(msg, xu_ly_nap)
 
     def xu_ly_nap(message):
-        # Nếu người dùng bấm lệnh khác thì bỏ qua
-        if message.text.startswith('/') or message.text in ["🎲 Tạo bàn", "🎯 Đặt cược", "📖 Luật chơi", "💸 Rút tiền"]: 
+        # Bỏ qua nếu người dùng bấm các nút menu khác
+        if message.text.startswith('/') or message.text in ["🎲 Tạo bàn", "🎯 Đặt cược", "📖 Luật chơi", "💸 Rút tiền", "👤 Hồ sơ"]: 
             return 
             
         try:
