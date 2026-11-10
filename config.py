@@ -5,12 +5,14 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "8077955829:AAHHkj9UfheUOx19dfQU-KCaXvSkJz7m9
 ADMIN_ID = int(os.getenv("ADMIN_ID", "8183105705")) # ID Telegram của bạn
 ADMIN_KEY = "bita" # Key bảo mật cho web admin
 
-SEPAY_BANK_BIN = "2003"  
+# Cấu hình Ngân hàng (Đã sửa lại mã BIN chuẩn)
+SEPAY_BANK_BIN = "970407"  # Mã BIN của Techcombank. (MB: 970422, VCB: 970436)
 SEPAY_BANK_NUMBER = "1000405178" 
 SEPAY_ACCOUNT_NAME = "NGUYEN CONG HOANG KHANG" 
+
 # Cấu hình Game
 VON_LAM_CAI = 100000  # 100.000 điểm = 1.000.000 VNĐ
-THOI_GIAN_CUOC = 40
+THOI_GIAN_CUOC = 50
 CUOC_MAC_DINH = 100
 PHI_NAP = 0.02
 
