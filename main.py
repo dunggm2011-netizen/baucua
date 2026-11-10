@@ -1,14 +1,15 @@
 import threading
-from flask import Flask, request, jsonify, render_template_string
+import os
 import json
+from flask import Flask, request, jsonify
 import telebot
 from config import BOT_TOKEN, ADMIN_ID, ADMIN_KEY, DB_PATH
-from database.db import init_db
+from database.db import init_db, get_conn # Lấy hàm get_conn từ file db.py
 from database import users as users_db
 from database import games as games_db
 
-# Import các module handler
-from handlers import start, tao_ban, dat_cuoc, soc, nap_tien, rut_tien
+# Import các module handler (Nhớ thêm admin)
+from handlers import start, tao_ban, dat_cuoc, soc, nap_tien, rut_tien, admin
 
 # Khởi tạo Bot & Flask
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -21,6 +22,7 @@ dat_cuoc.register_handlers(bot)
 soc.register_handlers(bot)
 nap_tien.register_handlers(bot)
 rut_tien.register_handlers(bot)
+admin.register_handlers(bot) # Đã đăng ký admin
 
 # --- FLASK ROUTES ---
 @app.route('/sepay-webhook', methods=['POST'])
@@ -43,7 +45,7 @@ def health(): return "OK", 200
 def get_user_json():
     if request.args.get('key') != ADMIN_KEY: return jsonify({"error": "403 Forbidden"}), 403
     uid = request.args.get('id')
-    conn = games_db.get_conn() # Dùng tạm hàm get_conn từ games_db
+    conn = get_conn() # Đã sửa thành gọi từ db.py
     row = conn.execute('SELECT * FROM users WHERE user_id=?', (uid,)).fetchone()
     conn.close()
     if row: return jsonify(dict(row)), 200
@@ -56,12 +58,13 @@ def add_user_html():
     if request.method == 'POST':
         try:
             data = json.loads(request.form.get('user_json', ''))
-            conn = games_db.get_conn()
+            conn = get_conn() # Đã sửa thành gọi từ db.py
             conn.execute('INSERT OR REPLACE INTO users (user_id, username, ho_ten, diem) VALUES (?,?,?,?)', 
                          (int(data['user_id']), data.get('username'), data.get('ho_ten'), data.get('diem', 0)))
             conn.commit(); conn.close()
             msg = f"✅ Đã cập nhật user {data['user_id']}!"
         except Exception as e: msg = f"❌ Lỗi: {e}"
+    # Dùng render_template_string thay vì trả chuỗi thô để HTML hiển thị đẹp hơn (nếu cần)
     return f"<h2>Phục hồi User</h2><p>{msg}</p><form method='POST'><textarea name='user_json' style='width:100%;height:200px'></textarea><br><button type='submit'>Lưu</button></form>"
 
 # --- CHẠY CHÍNH ---
@@ -70,8 +73,8 @@ if __name__ == '__main__':
     
     # Chạy Flask ngầm ở luồng riêng
     def run_flask():
-        import os
         app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    
     threading.Thread(target=run_flask, daemon=True).start()
     
     print("🚀 Bot đang chạy bằng Telebot (Polling)...")
