@@ -4,6 +4,7 @@ from config import VON_LAM_CAI, THOI_GIAN_CUOC
 import database.users as users_db
 import database.games as games_db
 from database.db import get_conn
+from utils import media
 
 def register_handlers(bot):
     @bot.message_handler(func=lambda m: m.text == "🎲 Tạo bàn")
@@ -11,7 +12,6 @@ def register_handlers(bot):
         u = message.from_user
         chat_id = message.chat.id
         
-        # Kiểm tra xem đã có bàn nào đang mở chưa
         ban_cu = games_db.get_ban_gan_nhat(chat_id)
         if ban_cu and ban_cu['trang_thai'] in ('dang_cho', 'het_gio'):
             kb = InlineKeyboardMarkup()
@@ -27,7 +27,6 @@ def register_handlers(bot):
         ban_id = games_db.tao_ban(u.id, chat_id)
         
         kb = InlineKeyboardMarkup()
-        # Trong lúc chờ 40s, Cái có thể xoá bàn nếu muốn
         kb.add(InlineKeyboardButton("🗑 Xoá bàn", callback_data=f"xoaban_{ban_id}"))
         
         msg = bot.send_message(
@@ -35,25 +34,25 @@ def register_handlers(bot):
             f"✅ Bàn #{ban_id} đã mở. Bạn là CÁI.\n"
             f"⏰ Đặt cược trong {THOI_GIAN_CUOC} giây!\n"
             f"👉 Người chơi gõ lệnh: `/cuoc <số tiền>`\n", 
-            reply_markup=kb,
-            parse_mode='Markdown'
+            reply_markup=kb, parse_mode='Markdown'
         )
         games_db.them_message_id(ban_id, msg.message_id)
         
-        # Chạy luồng đếm ngược
-        threading.Timer(THOI_GIAN_CUOC, khoa_ban, args=[bot, chat_id, ban_id]).start()
+        threading.Timer(THOI_GIAN_CUOC, khoa_ban_va_random, args=[bot, chat_id, ban_id]).start()
 
-    def khoa_ban(bot, chat_id, ban_id):
-        # Hết giờ thì đổi trạng thái sang 'het_gio'
-        games_db.khoa_ban(ban_id)
+    def khoa_ban_va_random(bot, chat_id, ban_id):
+        # Random ngầm trước khi khóa
+        ket_qua_ngam = media.random_ket_qua()
         
-        # Đổi nút thành nút SÓC và Xoá bàn
+        conn = get_conn()
+        conn.execute("UPDATE bans SET trang_thai='het_gio', ket_qua=? WHERE ban_id=?", (",".join(ket_qua_ngam), ban_id))
+        conn.commit(); conn.close()
+        
         kb = InlineKeyboardMarkup()
         kb.row(
             InlineKeyboardButton("🎲 SÓC", callback_data=f"soc_{ban_id}"),
             InlineKeyboardButton("🗑 Xoá bàn", callback_data=f"xoaban_{ban_id}")
         )
-        
         msg = bot.send_message(chat_id, "⏰ Hết giờ đặt cược! Người làm cái bấm SÓC.", reply_markup=kb)
         games_db.them_message_id(ban_id, msg.message_id)
 
