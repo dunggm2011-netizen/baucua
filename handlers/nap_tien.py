@@ -1,23 +1,25 @@
-from telebot.types import ForceReply
 from config import SEPAY_BANK_BIN, SEPAY_BANK_NUMBER, SEPAY_ACCOUNT_NAME, PHI_NAP
 import database.games as games_db
 
 def register_handlers(bot):
     @bot.message_handler(func=lambda m: m.text == "💰 Nạp tiền")
     def bat_dau_nap(message):
-        msg = bot.reply_to(message, "Nhập số tiền muốn nạp (10.000 - 200.000 VNĐ):\nVí dụ: 50000", reply_markup=ForceReply(selective=True))
+        msg = bot.reply_to(message, "Nhập số tiền muốn nạp (từ 10.000 đến 200.000 VNĐ):\nVí dụ: 50000")
         bot.register_next_step_handler(msg, xu_ly_nap)
 
     def xu_ly_nap(message):
-        if message.text.startswith('/'): return
+        # Nếu người dùng bấm lệnh khác thì bỏ qua
+        if message.text.startswith('/') or message.text in ["🎲 Tạo bàn", "🎯 Đặt cược", "📖 Luật chơi", "💸 Rút tiền"]: 
+            return 
+            
         try:
             so_tien = int(message.text.replace(".", "").replace(",", ""))
         except:
-            bot.reply_to(message, "Số tiền không hợp lệ. Vui lòng bấm Nạp tiền lại.")
+            bot.reply_to(message, "❌ Số tiền không hợp lệ. Vui lòng bấm nút Nạp tiền để làm lại.")
             return
 
         if so_tien < 10000 or so_tien > 200000:
-            bot.reply_to(message, "Số tiền phải từ 10.000 đến 200.000. Bấm Nạp tiền lại.")
+            bot.reply_to(message, "❌ Số tiền phải từ 10.000 đến 200.000. Vui lòng bấm nút Nạp tiền để làm lại.")
             return
 
         user_id = message.from_user.id
@@ -30,5 +32,5 @@ def register_handlers(bot):
         bot.send_photo(
             message.chat.id, 
             qr_url, 
-            caption=f"Quét QR để nạp {so_tien:,}đ\nNội dung CK: {ma_don}\nĐiểm nhận được: {so_diem_nhan} (đã trừ 2% phí)\n\nSau khi chuyển khoản, điểm sẽ tự động cộng."
+            caption=f"✅ Tạo đơn nạp thành công!\n\nQuét QR để nạp: {so_tien:,}đ\nNội dung CK: {ma_don}\nĐiểm nhận: {so_diem_nhan} (đã trừ 2% phí)\n\nSau khi chuyển khoản, điểm sẽ tự động cộng."
         )
