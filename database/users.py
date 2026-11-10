@@ -12,6 +12,10 @@ def create_user(user_id, username, ho_ten):
     conn.commit()
     conn.close()
 
+def get_diem(user_id):
+    row = get_user(user_id)
+    return row['diem'] if row else 0
+
 def cong_diem(user_id, so_diem):
     conn = get_conn()
     conn.execute('UPDATE users SET diem = diem + ? WHERE user_id=?', (so_diem, user_id))
@@ -21,14 +25,13 @@ def cong_diem(user_id, so_diem):
 def tru_diem(user_id, so_diem):
     conn = get_conn()
     row = conn.execute('SELECT diem FROM users WHERE user_id=?', (user_id,)).fetchone()
+    
+    # Nếu không tìm thấy user hoặc không đủ điểm thì trả về False
     if not row or row['diem'] < so_diem:
         conn.close()
         return False
+        
     conn.execute('UPDATE users SET diem = diem - ? WHERE user_id=?', (so_diem, user_id))
     conn.commit()
     conn.close()
     return True
-
-def get_diem(user_id):
-    row = get_user(user_id)
-    return row['diem'] if row else 0
