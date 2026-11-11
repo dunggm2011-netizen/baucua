@@ -4,7 +4,7 @@ from config import DB_PATH
 
 def get_conn():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    # check_same_thread=False BẮT BUỘC để tránh lỗi khóa Database
+    # check_same_thread=False giúp Bot và Web cùng đọc ghi không bị lỗi "Database is locked"
     conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=15)
     conn.row_factory = sqlite3.Row
     return conn
