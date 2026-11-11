@@ -1,26 +1,21 @@
+import sqlite3
 import os
-import psycopg2
-import psycopg2.extras
-
-DATABASE_URL = os.environ.get('DATABASE_URL')
+from config import DB_PATH
 
 def get_conn():
-    if DATABASE_URL:
-        conn = psycopg2.connect(DATABASE_URL)
-        conn.cursor_factory = psycopg2.extras.DictCursor 
-        return conn
-    else:
-        import sqlite3
-        conn = sqlite3.connect('game_data.db')
-        conn.row_factory = sqlite3.Row
-        return conn
+    # Đảm bảo thư mục chứa file database tồn tại
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def init_db():
     conn = get_conn()
     c = conn.cursor()
     
+    # 1. Bảng người dùng (Thêm cột tổng nạp và đã cược để làm điều kiện rút)
     c.execute('''CREATE TABLE IF NOT EXISTS users (
-        user_id BIGINT PRIMARY KEY, 
+        user_id INTEGER PRIMARY KEY, 
         username TEXT, 
         ho_ten TEXT, 
         diem INTEGER DEFAULT 0,
@@ -28,26 +23,29 @@ def init_db():
         da_cuoc INTEGER DEFAULT 0
     )''')
     
+    # 2. Bảng quản lý bàn chơi
     c.execute('''CREATE TABLE IF NOT EXISTS bans (
-        ban_id SERIAL PRIMARY KEY, 
-        cai_id BIGINT, 
-        chat_id BIGINT, 
+        ban_id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        cai_id INTEGER, 
+        chat_id INTEGER, 
         trang_thai TEXT DEFAULT 'dang_cho', 
         ket_qua TEXT, 
         message_ids TEXT
     )''')
     
+    # 3. Bảng lịch sử đặt cược
     c.execute('''CREATE TABLE IF NOT EXISTS cuoc (
-        id SERIAL PRIMARY KEY, 
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
         ban_id INTEGER, 
-        user_id BIGINT, 
+        user_id INTEGER, 
         cua TEXT, 
         so_diem INTEGER
     )''')
     
+    # 4. Bảng giao dịch nạp tiền
     c.execute('''CREATE TABLE IF NOT EXISTS giao_dich (
-        id SERIAL PRIMARY KEY, 
-        user_id BIGINT, 
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        user_id INTEGER, 
         loai TEXT, 
         so_tien INTEGER, 
         so_diem INTEGER, 
@@ -55,9 +53,10 @@ def init_db():
         trang_thai TEXT DEFAULT 'cho'
     )''')
     
+    # 5. Bảng yêu cầu rút tiền
     c.execute('''CREATE TABLE IF NOT EXISTS yeu_cau_rut (
-        id SERIAL PRIMARY KEY, 
-        user_id BIGINT, 
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        user_id INTEGER, 
         so_diem INTEGER, 
         stk TEXT, 
         ten_chu_the TEXT,
@@ -66,4 +65,4 @@ def init_db():
     
     conn.commit()
     conn.close()
-    print("✅ Kết nối và tạo bảng trên Neon (PostgreSQL) thành công!")
+    print("✅ Đã khởi tạo Database SQLite thành công.")
