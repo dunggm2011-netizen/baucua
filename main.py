@@ -1,8 +1,6 @@
 import threading
 import os
 import json
-import hmac
-import hashlib
 from flask import Flask, request, jsonify
 import telebot
 from config import BOT_TOKEN, ADMIN_ID, ADMIN_KEY, DB_PATH
@@ -29,25 +27,23 @@ admin.register_handlers(bot)
 
 @app.route('/sepay-webhook', methods=['POST'])
 def sepay_webhook():
-    # Cấu hình Secret Key (HMAC-SHA256)
-    SECRET_KEY = "DMAS9CFVPYR8ZHSLGU6UBRJOKWKQXB2TCIBL00WYFI3LRODNNC2HJEJRFSGKA1PO"
+    # Cấu hình API Key (Khớp với ảnh bạn gửi trên SePay)
+    API_KEY_SEPAY = "DMAS9CFVPYR8ZHSLGU6UBRJOKWKQXB2TCIBL00WYFI3LRODNNC2HJEJRFSGKA1PO"
     
     print("\n" + "="*40)
     print("📥 NHẬN ĐƯỢC TÍN HIỆU TỪ SEPAY")
     
     try:
-        # 1. Xác thực chữ ký HMAC (nếu SePay gửi)
-        signature = request.headers.get('x-sepay-signature')
-        if signature:
-            expected_sig = hmac.new(SECRET_KEY.encode('utf-8'), request.data, hashlib.sha256).hexdigest()
-            if not hmac.compare_digest(signature, expected_sig):
-                print("❌ Lỗi: Chữ ký HMAC không khớp!")
-                return jsonify({"error": "Chữ ký không hợp lệ"}), 401
-            print("✅ Xác thực HMAC thành công.")
-        else:
-            print("⚠️ Không có header x-sepay-signature (Bỏ qua xác thực).")
+        # 1. Xác thực API Key (SePay gửi dạng: Apikey <key>)
+        auth_header = request.headers.get('Authorization')
+        if auth_header:
+            token = auth_header.replace('Apikey ', '').strip()
+            if token != API_KEY_SEPAY:
+                print("❌ Lỗi: API Key không khớp!")
+                return jsonify({"error": "Unauthorized"}), 401
+            print("✅ Xác thực API Key thành công.")
             
-        # 2. Đọc dữ liệu
+        # 2. Đọc dữ liệu JSON
         data = request.json
         print(f"📦 Dữ liệu nhận được: {data}")
         
@@ -56,30 +52,26 @@ def sepay_webhook():
             return jsonify({"success": True}), 200
             
         content = data.get('content', '')
-        print(f"📝 Nội dung CK: '{content}'")
+        print(f"📝 Nội dung CK: {content}")
         
         # 3. Tìm mã đơn NAP...
         ma_don = next((word for word in content.split() if word.startswith('NAP')), None)
-        print(f"🔍 Mã đơn tìm được: {ma_don}")
+        print(f"🔍 Mã đơn: {ma_don}")
         
         if ma_don:
             gd = games_db.get_giao_dich_by_ma(ma_don)
-            print(f"🗄️ Dữ liệu đơn trong DB: {gd}")
-            
             if gd and gd['trang_thai'] == 'cho':
                 users_db.cong_diem(gd['user_id'], gd['so_diem'])
                 games_db.cap_nhat_giao_dich(ma_don, 'done')
                 print(f"🎉 THÀNH CÔNG: Đã cộng {gd['so_diem']} điểm cho user {gd['user_id']}")
             else:
-                print("⚠️ Không tìm thấy đơn trong Database (Có thể DB đã bị reset khi deploy, hoặc đơn đã được cộng rồi).")
-        else:
-            print("⚠️ Không tìm thấy từ khóa 'NAP' trong nội dung chuyển khoản.")
-            
+                print("⚠️ Không tìm thấy đơn trong Database (hoặc đã cộng rồi).")
+                
         return jsonify({"success": True}), 200
         
     except Exception as e:
         print(f"❌ LỖI WEBHOOK: {str(e)}")
-        return jsonify({"success": True}), 200 # Luôn trả 200 để SePay không spam
+        return jsonify({"success": True}), 200
 
 @app.route('/health', methods=['GET'])
 def health(): return "OK", 200
