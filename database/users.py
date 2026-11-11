@@ -32,21 +32,3 @@ def tru_diem(user_id, so_diem):
     conn.commit()
     conn.close()
     return True
-
-def cong_tien_cuoc(user_id, so_diem_cuoc):
-    conn = get_conn()
-    conn.execute('UPDATE users SET da_cuoc = da_cuoc + ? WHERE user_id=?', (so_diem_cuoc, user_id))
-    conn.commit()
-    conn.close()
-
-def cong_tien_nap(user_id, so_diem_nap):
-    conn = get_conn()
-    conn.execute('UPDATE users SET tong_nap = tong_nap + ? WHERE user_id=?', (so_diem_nap, user_id))
-    conn.commit()
-    conn.close()
-
-def get_tien_cuoc_va_nap(user_id):
-    conn = get_conn()
-    row = conn.execute('SELECT tong_nap, da_cuoc FROM users WHERE user_id=?', (user_id,)).fetchone()
-    conn.close()
-    return row if row else {'tong_nap': 0, 'da_cuoc': 0}
