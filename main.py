@@ -1,7 +1,7 @@
 import threading
 import os
 import json
-import re  # Thư viện tìm mã đơn thông minh
+import re
 from flask import Flask, request, jsonify
 import telebot
 from config import BOT_TOKEN, ADMIN_ID, ADMIN_KEY, DB_PATH, TEN_CON_VAT
@@ -9,13 +9,11 @@ from database.db import init_db, get_conn
 from database import users as users_db
 from database import games as games_db
 
-# Import các module handler
 from handlers import start, tao_ban, dat_cuoc, soc, nap_tien, rut_tien, admin
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# Đăng ký handler
 start.register_handlers(bot)
 tao_ban.register_handlers(bot)
 dat_cuoc.register_handlers(bot)
@@ -28,11 +26,9 @@ admin.register_handlers(bot)
 
 @app.route('/sepay-webhook', methods=['POST'])
 def sepay_webhook():
-    # Cấu hình API Key của bạn
     API_KEY_SEPAY = "DMAS9CFVPYR8ZHSLGU6UBRJOKWKQXB2TCIBL00WYFI3LRODNNC2HJEJRFSGKA1PO"
     
     try:
-        # 1. Xác thực API Key
         auth_header = request.headers.get('Authorization')
         if auth_header:
             token = auth_header.replace('Apikey ', '').strip()
@@ -40,7 +36,6 @@ def sepay_webhook():
                 print("❌ Lỗi: API Key không khớp!")
                 return jsonify({"error": "Unauthorized"}), 401
                 
-        # 2. Đọc dữ liệu
         data = request.json
         if not data or data.get('transferType') != 'in': 
             return jsonify({"success": True}), 200
@@ -48,7 +43,6 @@ def sepay_webhook():
         content = data.get('content', '')
         print(f"📥 Nhận Webhook. Nội dung: {content}")
         
-        # 3. Tìm mã đơn NAP...
         match = re.search(r'(NAP\d+)', content)
         if match:
             ma_don = match.group(1)
@@ -56,16 +50,12 @@ def sepay_webhook():
             
             gd = games_db.get_giao_dich_by_ma(ma_don)
             
-            # 4. Tự động cộng điểm nếu đơn hàng đang chờ
             if gd and gd['trang_thai'] == 'cho':
                 games_db.cap_nhat_giao_dich(ma_don, 'done')
                 users_db.cong_diem(gd['user_id'], gd['so_diem'])
-                # CỘNG DỒN TỔNG NẠP ĐỂ TÍNH ĐIỀU KIỆN RÚT
                 users_db.cong_tien_nap(gd['user_id'], gd['so_diem']) 
-                
                 print(f"🎉 THÀNH CÔNG: Đã cộng {gd['so_diem']} điểm cho user {gd['user_id']}")
                 
-                # 5. Gửi tin nhắn thông báo cho người chơi
                 try:
                     u_info = users_db.get_user(gd['user_id'])
                     ho_ten = u_info['ho_ten'] if u_info else "Người chơi"
@@ -85,7 +75,7 @@ def sepay_webhook():
                 except Exception as e:
                     print(f"Lỗi gửi tin nhắn: {e}")
             else:
-                print("⚠️ Không tìm thấy đơn trong Database (hoặc đã cộng rồi).")
+                print("⚠️ Không tìm thấy đơn trong Database.")
                     
         return jsonify({"success": True}), 200
     except Exception as e:
@@ -101,7 +91,7 @@ def get_user_json():
     uid = request.args.get('id')
     if not uid: return jsonify({"error": "Thiếu ?id"}), 400
     conn = get_conn()
-    row = conn.execute('SELECT * FROM users WHERE user_id=?', (uid,)).fetchone()
+    row = conn.execute('SELECT * FROM users WHERE user_id=%s', (uid,)).fetchone()
     conn.close()
     if row: 
         u_dict = dict(row); u_dict['user_id'] = str(u_dict['user_id'])
@@ -143,7 +133,11 @@ def add_user_html():
                 if len(data) == 0: raise ValueError("Mảng JSON rỗng.")
                 data = data[0]
             conn = get_conn()
-            conn.execute('INSERT OR REPLACE INTO users (user_id, username, ho_ten, diem, tong_nap, da_cuoc) VALUES (?,?,?,?,?,?)', 
+            # Sửa câu lệnh SQL cho Postgres (%s thay vì ?)
+            conn.execute('''INSERT INTO users (user_id, username, ho_ten, diem, tong_nap, da_cuoc) 
+                            VALUES (%s, %s, %s, %s, %s, %s) 
+                            ON CONFLICT (user_id) DO UPDATE 
+                            SET diem=EXCLUDED.diem, tong_nap=EXCLUDED.tong_nap, da_cuoc=EXCLUDED.da_cuoc''', 
                          (int(data['user_id']), data.get('username'), data.get('ho_ten'), data.get('diem', 0), data.get('tong_nap', 0), data.get('da_cuoc', 0)))
             conn.commit(); conn.close()
             msg = f"✅ Đã cập nhật user <b>{data['user_id']}</b>!"
@@ -151,7 +145,6 @@ def add_user_html():
             msg = f"❌ Lỗi: {str(e)}"
     return f"<h2>Phục Hồi User</h2><p>{msg}</p><form method='POST'><textarea name='user_json' style='width:100%;height:200px'></textarea><br><button type='submit' style='padding:10px 20px;margin-top:10px;'>Lưu</button></form>"
 
-# --- CHẠY CHÍNH ---
 if __name__ == '__main__':
     init_db()
     def run_flask():
