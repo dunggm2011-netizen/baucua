@@ -1,10 +1,13 @@
 import threading
+import time
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from config import VON_LAM_CAI, THOI_GIAN_CUOC
+from config import VON_LAM_CAI, THOI_GIAN_CUOC, TEN_CON_VAT
 import database.users as users_db
 import database.games as games_db
 from database.db import get_conn
 from utils import media
+# Import hàm xử lý Sóc tự động từ file soc.py (sẽ viết ở dưới)
+from handlers.soc import tu_dong_soc 
 
 def register_handlers(bot):
     @bot.message_handler(func=lambda m: m.text == "🎲 Tạo bàn")
@@ -14,9 +17,7 @@ def register_handlers(bot):
         
         ban_cu = games_db.get_ban_gan_nhat(chat_id)
         if ban_cu and ban_cu['trang_thai'] in ('dang_cho', 'het_gio'):
-            kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton("↩️ Vô lại bàn cũ", callback_data=f"vaoban_{ban_cu['ban_id']}"))
-            bot.reply_to(message, "⚠️ Bạn đang có một bàn đang mở.", reply_markup=kb)
+            bot.reply_to(message, "⚠️ Bạn đang có một bàn đang mở.")
             return
 
         diem = users_db.get_diem(u.id)
@@ -26,48 +27,40 @@ def register_handlers(bot):
 
         ban_id = games_db.tao_ban(u.id, chat_id)
         
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("🗑 Xoá bàn", callback_data=f"xoaban_{ban_id}"))
-        
-        msg = bot.send_message(
-            chat_id, 
-            f"✅ Bàn #{ban_id} đã mở. Bạn là CÁI.\n"
-            f"⏰ Đặt cược trong {THOI_GIAN_CUOC} giây!\n"
-            f"👉 Người chơi gõ lệnh: `/cuoc <số tiền>`\n", 
-            reply_markup=kb, parse_mode='Markdown'
-        )
+        # Gửi tin nhắn đếm ngược đầu tiên
+        msg = bot.send_message(chat_id, f"⏳ Bàn #{ban_id} đang mở. Thời gian đặt cược: {THOI_GIAN_CUOC}s...")
         games_db.them_message_id(ban_id, msg.message_id)
         
-        threading.Timer(THOI_GIAN_CUOC, khoa_ban_va_random, args=[bot, chat_id, ban_id]).start()
+        # Chạy luồng đếm ngược ngầm
+        threading.Thread(target=dem_nguoc_realtime, args=[bot, chat_id, ban_id, msg.message_id]).start()
 
-    def khoa_ban_va_random(bot, chat_id, ban_id):
-        # Random ngầm trước khi khóa
+    def dem_nguoc_realtime(bot, chat_id, ban_id, msg_id):
+        for i in range(THOI_GIAN_CUOC, 0, -1):
+            time.sleep(1)
+            try:
+                # Cập nhật tin nhắn mỗi 5 giây hoặc 3 giây cuối để tránh bị Telegram chặn (Rate Limit)
+                if i % 5 == 0 or i <= 3:
+                    bot.edit_message_text(
+                        chat_id=chat_id, 
+                        message_id=msg_id, 
+                        text=f"⏳ Bàn #{ban_id} đang mở.\n⏰ Còn lại: <b>{i} giây</b>\n👉 Gõ /cuoc <số tiền> để cược.",
+                        parse_mode='HTML'
+                    )
+            except:
+                pass # Bỏ qua nếu có lỗi mạng
+
+        # Hết giờ -> Random kết quả ngầm
         ket_qua_ngam = media.random_ket_qua()
-        
         conn = get_conn()
         conn.execute("UPDATE bans SET trang_thai='het_gio', ket_qua=? WHERE ban_id=?", (",".join(ket_qua_ngam), ban_id))
         conn.commit(); conn.close()
         
-        kb = InlineKeyboardMarkup()
-        kb.row(
-            InlineKeyboardButton("🎲 SÓC", callback_data=f"soc_{ban_id}"),
-            InlineKeyboardButton("🗑 Xoá bàn", callback_data=f"xoaban_{ban_id}")
+        bot.edit_message_text(
+            chat_id=chat_id, 
+            message_id=msg_id, 
+            text=f"🔒 Bàn #{ban_id} đã khóa đặt cược.\n🎲 Kết quả đang được công bố...",
+            parse_mode='HTML'
         )
-        msg = bot.send_message(chat_id, "⏰ Hết giờ đặt cược! Người làm cái bấm SÓC.", reply_markup=kb)
-        games_db.them_message_id(ban_id, msg.message_id)
-
-    @bot.callback_query_handler(func=lambda call: call.data.startswith('xoaban_'))
-    def xoa_ban(call):
-        ban_id = int(call.data.replace("xoaban_", ""))
-        ban = games_db.get_ban(ban_id)
         
-        if ban['cai_id'] != call.from_user.id:
-            bot.answer_callback_query(call.id, "Chỉ người tạo bàn mới được xoá!", show_alert=True)
-            return
-            
-        conn = get_conn()
-        conn.execute("UPDATE bans SET trang_thai='da_xoa' WHERE ban_id=?", (ban_id,))
-        conn.commit(); conn.close()
-        
-        bot.answer_callback_query(call.id, "Đã xoá bàn!")
-        bot.send_message(call.message.chat.id, f"🗑 Bàn #{ban_id} đã bị người tạo xoá.")
+        # TỰ ĐỘNG SÓC
+        tu_dong_soc(bot, ban_id, chat_id)
