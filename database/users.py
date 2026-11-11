@@ -1,53 +1,55 @@
-from .db import get_conn
+from .db import load_data, save_data
 
 def get_user(user_id):
-    conn = get_conn()
-    row = conn.execute('SELECT * FROM users WHERE user_id=?', (user_id,)).fetchone()
-    conn.close()
-    return row
+    data = load_data()
+    return data["users"].get(str(user_id), None)
 
 def create_user(user_id, username, ho_ten):
-    conn = get_conn()
-    conn.execute('INSERT OR IGNORE INTO users (user_id, username, ho_ten) VALUES (?,?,?)', (user_id, username, ho_ten))
-    conn.commit()
-    conn.close()
+    data = load_data()
+    uid = str(user_id)
+    if uid not in data["users"]:
+        data["users"][uid] = {
+            "user_id": user_id, "username": username, "ho_ten": ho_ten, 
+            "diem": 0, "tong_nap": 0, "da_cuoc": 0
+        }
+        save_data(data)
 
 def get_diem(user_id):
-    row = get_user(user_id)
-    return row['diem'] if row else 0
+    user = get_user(user_id)
+    return user['diem'] if user else 0
 
 def cong_diem(user_id, so_diem):
-    conn = get_conn()
-    conn.execute('UPDATE users SET diem = diem + ? WHERE user_id=?', (so_diem, user_id))
-    conn.commit()
-    conn.close()
+    data = load_data()
+    uid = str(user_id)
+    if uid in data["users"]:
+        data["users"][uid]['diem'] += so_diem
+        save_data(data)
 
 def tru_diem(user_id, so_diem):
-    conn = get_conn()
-    row = conn.execute('SELECT diem FROM users WHERE user_id=?', (user_id,)).fetchone()
-    if not row or row['diem'] < so_diem:
-        conn.close()
-        return False
-    conn.execute('UPDATE users SET diem = diem - ? WHERE user_id=?', (so_diem, user_id))
-    conn.commit()
-    conn.close()
-    return True
+    data = load_data()
+    uid = str(user_id)
+    if uid in data["users"] and data["users"][uid]['diem'] >= so_diem:
+        data["users"][uid]['diem'] -= so_diem
+        save_data(data)
+        return True
+    return False
 
-# --- CÁC HÀM MỚI CHO CƠ CHẾ CƯỢC ĐỦ MỚI RÚT ---
 def cong_tien_cuoc(user_id, so_diem_cuoc):
-    conn = get_conn()
-    conn.execute('UPDATE users SET da_cuoc = da_cuoc + ? WHERE user_id=?', (so_diem_cuoc, user_id))
-    conn.commit()
-    conn.close()
+    data = load_data()
+    uid = str(user_id)
+    if uid in data["users"]:
+        data["users"][uid]['da_cuoc'] += so_diem_cuoc
+        save_data(data)
 
 def cong_tien_nap(user_id, so_diem_nap):
-    conn = get_conn()
-    conn.execute('UPDATE users SET tong_nap = tong_nap + ? WHERE user_id=?', (so_diem_nap, user_id))
-    conn.commit()
-    conn.close()
+    data = load_data()
+    uid = str(user_id)
+    if uid in data["users"]:
+        data["users"][uid]['tong_nap'] += so_diem_nap
+        save_data(data)
 
 def get_tien_cuoc_va_nap(user_id):
-    conn = get_conn()
-    row = conn.execute('SELECT tong_nap, da_cuoc FROM users WHERE user_id=?', (user_id,)).fetchone()
-    conn.close()
-    return row if row else {'tong_nap': 0, 'da_cuoc': 0}
+    user = get_user(user_id)
+    if user:
+        return {"tong_nap": user.get('tong_nap', 0), "da_cuoc": user.get('da_cuoc', 0)}
+    return {"tong_nap": 0, "da_cuoc": 0}
