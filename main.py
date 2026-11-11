@@ -11,13 +11,11 @@ from database.db import init_db, get_conn
 from database import users as users_db
 from database import games as games_db
 
-# Import các module handler
 from handlers import start, tao_ban, dat_cuoc, soc, nap_tien, rut_tien, admin
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# Đăng ký handler
 start.register_handlers(bot)
 tao_ban.register_handlers(bot)
 dat_cuoc.register_handlers(bot)
@@ -27,44 +25,50 @@ rut_tien.register_handlers(bot)
 admin.register_handlers(bot)
 
 # ==============================================================================
-# 1. CẤU HÌNH API THUEAPIBANK (TỰ ĐỘNG CÀO TIỀN)
+# 1. CẤU HÌNH GET API THUEAPIBANK (CÀO DỮ LIỆU TỰ ĐỘNG)
 # ==============================================================================
 BANK_API = "https://thueapibank.vn/historyapitpbv2/6ca255a6218e69fd95feb4348844a220"
-CHECK_BANK_SECONDS = 10  # Cào 10 giây 1 lần
-processed_txs = set()    # Bộ nhớ tạm lưu các mã giao dịch đã xử lý
+CHECK_BANK_SECONDS = 10  # 10 giây gọi API 1 lần
+processed_txs = set()    # Lưu ID giao dịch đã cộng điểm để tránh cộng trùng
 
 def check_bank_api():
-    print("🚀 Bắt đầu chạy luồng cào API Bank...")
+    print("🚀 Bắt đầu chạy luồng cào API Bank (GET)...")
     while True:
         try:
             response = requests.get(BANK_API, timeout=15)
             if response.status_code == 200:
                 data = response.json()
+                
+                # Nếu API trả về lỗi thì bỏ qua
+                if data.get('status') != 'success':
+                    time.sleep(CHECK_BANK_SECONDS)
+                    continue
+
                 transactions = data.get('transactions', [])
                 
                 for tx in transactions:
-                    # Lấy ID giao dịch (để tránh cộng điểm 2 lần)
-                    tx_id = tx.get('transactionID') or tx.get('referenceCode') or tx.get('id') or str(tx.get('amount')) + tx.get('description', '')
+                    tx_id = tx.get('transactionID')
+                    amount = tx.get('amount', 0)
+                    content = tx.get('description', '')
+                    tx_type = tx.get('type', '')
                     
-                    if tx_id not in processed_txs:
-                        content = tx.get('description', '') 
-                        amount = tx.get('amount', 0)
+                    # Chỉ xử lý Tiền vào (IN) và chưa từng được xử lý
+                    if tx_type == 'IN' and tx_id and tx_id not in processed_txs:
                         
-                        # Tìm mã đơn NAP... trong nội dung CK
+                        # Tìm mã đơn NAP... trong nội dung
                         match = re.search(r'(NAP\d+)', content)
                         if match:
                             ma_don = match.group(1)
                             gd = games_db.get_giao_dich_by_ma(ma_don)
                             
-                            # Nếu đơn này đang chờ thanh toán
                             if gd and gd['trang_thai'] == 'cho':
                                 games_db.cap_nhat_giao_dich(ma_don, 'done')
                                 users_db.cong_diem(gd['user_id'], gd['so_diem'])
                                 users_db.cong_tien_nap(gd['user_id'], gd['so_diem'])
                                 
-                                print(f"🎉 CÀO API THÀNH CÔNG: Cộng {gd['so_diem']} điểm cho user {gd['user_id']}")
+                                print(f"🎉 THÀNH CÔNG: Đã cộng {gd['so_diem']} điểm cho user {gd['user_id']} (Mã GD: {tx_id})")
                                 
-                                # Báo tin nhắn cho người chơi
+                                # Gửi tin nhắn báo người chơi
                                 try:
                                     text = (
                                         f"🎉 <b>NẠP TIỀN THÀNH CÔNG</b> 🎉\n"
@@ -78,15 +82,16 @@ def check_bank_api():
                                 except Exception as e:
                                     print(f"Lỗi gửi tin nhắn: {e}")
                         
-                        # Đánh dấu là đã xử lý xong giao dịch này
+                        # Đánh dấu đã xử lý
                         processed_txs.add(tx_id)
+                        
         except Exception as e:
             print(f"Lỗi cào API Bank: {e}")
             
         time.sleep(CHECK_BANK_SECONDS)
 
 # ==============================================================================
-# 2. CÁC ENDPOINT FLASK (DÀNH CHO ADMIN VÀ BACKUP)
+# 2. CÁC ENDPOINT FLASK (DÀNH CHO ADMIN BACKUP)
 # ==============================================================================
 @app.route('/health', methods=['GET'])
 def health(): return "OK", 200
@@ -152,13 +157,13 @@ def add_user_html():
 if __name__ == '__main__':
     init_db()
     
-    # Chạy Flask (Bắt buộc phải có để Render không báo Port Timeout)
+    # Chạy Flask (cho Render không bị Port Timeout)
     def run_flask():
         port = int(os.environ.get('PORT', 10000))
         app.run(host='0.0.0.0', port=port)
     threading.Thread(target=run_flask, daemon=True).start()
     
-    # Chạy luồng cào API Bank
+    # Chạy luồng GET API Bank
     threading.Thread(target=check_bank_api, daemon=True).start()
     
     print("🚀 Bot Bầu Cua đang chạy...")
