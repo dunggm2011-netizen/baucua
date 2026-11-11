@@ -4,9 +4,10 @@ import os
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8077955829:AAHHkj9UfheUOx19dfQU-KCaXvSkJz7m92A")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "8183105705")) # ID Telegram của bạn
 ADMIN_KEY = "bita" # Key bảo mật cho web admin
-
+# ID nhóm Telegram để nhận báo cáo kết quả (nếu có). Để 0 nếu không dùng.
+GROUP_ID = -5419408508
 # Cấu hình Ngân hàng (Đã sửa lại mã BIN chuẩn)
-SEPAY_BANK_BIN = "970423"  # Mã BIN của tpbank. (MB: 970422, VCB: 970436)
+SEPAY_BANK_BIN = "970423"  # Mã BIN của tpbank.
 SEPAY_BANK_NUMBER = "10004405178" 
 SEPAY_ACCOUNT_NAME = "NGUYEN CONG HOANG KHANG" 
 
