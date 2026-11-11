@@ -1,18 +1,21 @@
 import threading
 import os
 import json
-import re  # Dùng để tìm mã đơn thông minh
+import re  # Thư viện tìm mã đơn thông minh
 from flask import Flask, request, jsonify
 import telebot
 from config import BOT_TOKEN, ADMIN_ID, ADMIN_KEY, DB_PATH
 from database.db import init_db, get_conn
 from database import users as users_db
 from database import games as games_db
+
+# Import các module handler
 from handlers import start, tao_ban, dat_cuoc, soc, nap_tien, rut_tien, admin
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
+# Đăng ký handler
 start.register_handlers(bot)
 tao_ban.register_handlers(bot)
 dat_cuoc.register_handlers(bot)
@@ -25,51 +28,63 @@ admin.register_handlers(bot)
 
 @app.route('/sepay-webhook', methods=['POST'])
 def sepay_webhook():
-    # API Key của bạn
+    # Cấu hình API Key của bạn
     API_KEY_SEPAY = "DMAS9CFVPYR8ZHSLGU6UBRJOKWKQXB2TCIBL00WYFI3LRODNNC2HJEJRFSGKA1PO"
     
-    print("\n" + "="*40)
-    print("📥 NHẬN ĐƯỢC TÍN HIỆU TỪ SEPAY")
-    
     try:
-        # 1. Xác thực API Key (SePay gửi dạng: Authorization: Apikey <key>)
+        # 1. Xác thực API Key (SePay gửi dạng: Apikey <key>)
         auth_header = request.headers.get('Authorization')
         if auth_header:
             token = auth_header.replace('Apikey ', '').strip()
             if token != API_KEY_SEPAY:
                 print("❌ Lỗi: API Key không khớp!")
                 return jsonify({"error": "Unauthorized"}), 401
-            print("✅ Xác thực API Key thành công.")
-        else:
-            print("⚠️ Cảnh báo: Không tìm thấy header Authorization")
-
+                
         # 2. Đọc dữ liệu
         data = request.json
         if not data or data.get('transferType') != 'in': 
             return jsonify({"success": True}), 200
             
         content = data.get('content', '')
-        print(f"📝 Nội dung CK: {content}")
+        print(f"📥 Nhận Webhook. Nội dung: {content}")
         
-        # 3. TÌM MÃ ĐƠN THÔNG MINH (Bắt chữ NAP + dãy số, dù dính dấu chấm)
+        # 3. Tìm mã đơn NAP... (Regex bắt NAP + dãy số, dù bị dính dấu chấm)
         match = re.search(r'(NAP\d+)', content)
-        
         if match:
             ma_don = match.group(1)
             print(f"🔍 Mã đơn tìm được: {ma_don}")
             
             gd = games_db.get_giao_dich_by_ma(ma_don)
+            
+            # 4. Tự động cộng điểm nếu đơn hàng đang chờ
             if gd and gd['trang_thai'] == 'cho':
-                users_db.cong_diem(gd['user_id'], gd['so_diem'])
                 games_db.cap_nhat_giao_dich(ma_don, 'done')
+                users_db.cong_diem(gd['user_id'], gd['so_diem'])
                 print(f"🎉 THÀNH CÔNG: Đã cộng {gd['so_diem']} điểm cho user {gd['user_id']}")
+                
+                # 5. Gửi tin nhắn thông báo cho người chơi
+                try:
+                    u_info = users_db.get_user(gd['user_id'])
+                    ho_ten = u_info['ho_ten'] if u_info else "Người chơi"
+                    so_du_moi = users_db.get_diem(gd['user_id'])
+                    
+                    text = (
+                        f"🎉 <b>NẠP TIỀN THÀNH CÔNG</b> 🎉\n"
+                        f"-------------\n"
+                        f"👤 Người nạp: <b>{ho_ten}</b>\n"
+                        f"💰 Số tiền: <code>+{gd['so_tien']:,} đ</code>\n"
+                        f"🎁 Điểm nhận: <code>+{gd['so_diem']:,} điểm</code>\n"
+                        f"🧾 Nội dung CK: <code>{ma_don}</code>\n"
+                        f"-------------\n"
+                        f"💵 Số dư hiện tại: <b>{so_du_moi:,} điểm</b>"
+                    )
+                    bot.send_message(gd['user_id'], text, parse_mode='HTML')
+                except Exception as e:
+                    print(f"Lỗi gửi tin nhắn: {e}")
             else:
                 print("⚠️ Không tìm thấy đơn trong Database (hoặc đã cộng rồi).")
-        else:
-            print("⚠️ Không tìm thấy từ khóa 'NAP' trong nội dung.")
-                
+                    
         return jsonify({"success": True}), 200
-        
     except Exception as e:
         print(f"❌ LỖI WEBHOOK: {str(e)}")
         return jsonify({"success": True}), 200
@@ -82,9 +97,11 @@ def get_user_json():
     if request.args.get('key') != ADMIN_KEY: return jsonify({"error": "403 Forbidden"}), 403
     uid = request.args.get('id')
     if not uid: return jsonify({"error": "Thiếu ?id"}), 400
+
     conn = get_conn()
     row = conn.execute('SELECT * FROM users WHERE user_id=?', (uid,)).fetchone()
     conn.close()
+    
     if row: 
         u_dict = dict(row); u_dict['user_id'] = str(u_dict['user_id'])
         return jsonify(u_dict), 200
