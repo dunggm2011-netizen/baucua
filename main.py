@@ -1,20 +1,18 @@
 import threading
 import os
 import json
+import re  # Dùng để tìm mã đơn thông minh
 from flask import Flask, request, jsonify
 import telebot
 from config import BOT_TOKEN, ADMIN_ID, ADMIN_KEY, DB_PATH
 from database.db import init_db, get_conn
 from database import users as users_db
 from database import games as games_db
-
-# Import các module handler
 from handlers import start, tao_ban, dat_cuoc, soc, nap_tien, rut_tien, admin
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# Đăng ký handler
 start.register_handlers(bot)
 tao_ban.register_handlers(bot)
 dat_cuoc.register_handlers(bot)
@@ -27,14 +25,14 @@ admin.register_handlers(bot)
 
 @app.route('/sepay-webhook', methods=['POST'])
 def sepay_webhook():
-    # Cấu hình API Key (Khớp với ảnh bạn gửi trên SePay)
+    # API Key của bạn
     API_KEY_SEPAY = "DMAS9CFVPYR8ZHSLGU6UBRJOKWKQXB2TCIBL00WYFI3LRODNNC2HJEJRFSGKA1PO"
     
     print("\n" + "="*40)
     print("📥 NHẬN ĐƯỢC TÍN HIỆU TỪ SEPAY")
     
     try:
-        # 1. Xác thực API Key (SePay gửi dạng: Apikey <key>)
+        # 1. Xác thực API Key (SePay gửi dạng: Authorization: Apikey <key>)
         auth_header = request.headers.get('Authorization')
         if auth_header:
             token = auth_header.replace('Apikey ', '').strip()
@@ -42,23 +40,24 @@ def sepay_webhook():
                 print("❌ Lỗi: API Key không khớp!")
                 return jsonify({"error": "Unauthorized"}), 401
             print("✅ Xác thực API Key thành công.")
-            
-        # 2. Đọc dữ liệu JSON
+        else:
+            print("⚠️ Cảnh báo: Không tìm thấy header Authorization")
+
+        # 2. Đọc dữ liệu
         data = request.json
-        print(f"📦 Dữ liệu nhận được: {data}")
-        
         if not data or data.get('transferType') != 'in': 
-            print("⚠️ Bỏ qua: Không phải giao dịch tiền vào.")
             return jsonify({"success": True}), 200
             
         content = data.get('content', '')
         print(f"📝 Nội dung CK: {content}")
         
-        # 3. Tìm mã đơn NAP...
-        ma_don = next((word for word in content.split() if word.startswith('NAP')), None)
-        print(f"🔍 Mã đơn: {ma_don}")
+        # 3. TÌM MÃ ĐƠN THÔNG MINH (Bắt chữ NAP + dãy số, dù dính dấu chấm)
+        match = re.search(r'(NAP\d+)', content)
         
-        if ma_don:
+        if match:
+            ma_don = match.group(1)
+            print(f"🔍 Mã đơn tìm được: {ma_don}")
+            
             gd = games_db.get_giao_dich_by_ma(ma_don)
             if gd and gd['trang_thai'] == 'cho':
                 users_db.cong_diem(gd['user_id'], gd['so_diem'])
@@ -66,6 +65,8 @@ def sepay_webhook():
                 print(f"🎉 THÀNH CÔNG: Đã cộng {gd['so_diem']} điểm cho user {gd['user_id']}")
             else:
                 print("⚠️ Không tìm thấy đơn trong Database (hoặc đã cộng rồi).")
+        else:
+            print("⚠️ Không tìm thấy từ khóa 'NAP' trong nội dung.")
                 
         return jsonify({"success": True}), 200
         
@@ -81,11 +82,9 @@ def get_user_json():
     if request.args.get('key') != ADMIN_KEY: return jsonify({"error": "403 Forbidden"}), 403
     uid = request.args.get('id')
     if not uid: return jsonify({"error": "Thiếu ?id"}), 400
-
     conn = get_conn()
     row = conn.execute('SELECT * FROM users WHERE user_id=?', (uid,)).fetchone()
     conn.close()
-    
     if row: 
         u_dict = dict(row); u_dict['user_id'] = str(u_dict['user_id'])
         return jsonify(u_dict), 200
