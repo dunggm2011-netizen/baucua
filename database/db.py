@@ -1,62 +1,25 @@
-import sqlite3
+import json
 import os
-from config import DB_PATH
+import threading
 
-def get_conn():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+DATA_FILE = "data.json"
+lock = threading.Lock() # Chống ghi đè dữ liệu khi nhiều người thao tác cùng lúc
+
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        # Nếu chưa có file, tạo cấu trúc rỗng
+        data = {"users": {}, "bans": {}, "cuoc": [], "giao_dich": {}, "yeu_cau_rut": {}}
+        save_data(data)
+        return data
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_data(data):
+    with lock:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
 
 def init_db():
-    conn = get_conn()
-    c = conn.cursor()
-    
-    # Bảng users có thêm tong_nap và da_cuoc
-    c.execute('''CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY, 
-        username TEXT, 
-        ho_ten TEXT, 
-        diem INTEGER DEFAULT 0,
-        tong_nap INTEGER DEFAULT 0,
-        da_cuoc INTEGER DEFAULT 0
-    )''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS bans (
-        ban_id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        cai_id INTEGER, 
-        chat_id INTEGER, 
-        trang_thai TEXT DEFAULT 'dang_cho', 
-        ket_qua TEXT, 
-        message_ids TEXT
-    )''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS cuoc (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        ban_id INTEGER, 
-        user_id INTEGER, 
-        cua TEXT, 
-        so_diem INTEGER
-    )''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS giao_dich (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        user_id INTEGER, 
-        loai TEXT, 
-        so_tien INTEGER, 
-        so_diem INTEGER, 
-        ma_don TEXT UNIQUE, 
-        trang_thai TEXT DEFAULT 'cho'
-    )''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS yeu_cau_rut (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        user_id INTEGER, 
-        so_diem INTEGER, 
-        stk TEXT, 
-        ten_chu_the TEXT,
-        trang_thai TEXT DEFAULT 'cho_duyet'
-    )''')
-    
-    conn.commit()
-    conn.close()
+    # Chỉ cần gọi hàm load_data để đảm bảo file tồn tại
+    load_data()
+    print("✅ Hệ thống file data.json đã sẵn sàng.")
