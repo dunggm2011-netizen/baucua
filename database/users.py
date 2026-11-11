@@ -26,10 +26,9 @@ def tru_diem(user_id, so_diem):
     conn = get_conn()
     row = conn.execute('SELECT diem FROM users WHERE user_id=?', (user_id,)).fetchone()
     
-    # Nếu không tìm thấy user hoặc không đủ điểm thì trả về False
     if not row or row['diem'] < so_diem:
         conn.close()
-        return False
+        return False # Không đủ điểm
         
     conn.execute('UPDATE users SET diem = diem - ? WHERE user_id=?', (so_diem, user_id))
     conn.commit()
