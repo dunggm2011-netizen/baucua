@@ -1,9 +1,8 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from config import SEPAY_BANK_BIN, SEPAY_BANK_NUMBER, SEPAY_ACCOUNT_NAME, PHI_NAP
+from config import SEPAY_BANK_BIN, SEPAY_BANK_NUMBER, SEPAY_ACCOUNT_NAME, PHI_NAP, ADMIN_ID
 import database.games as games_db
 import urllib.parse
 
-# Danh sách lưu những người đang chờ nhập số tiền
 waiting_for_amount = set()
 
 def register_handlers(bot):
@@ -18,10 +17,8 @@ def register_handlers(bot):
             waiting_for_amount.remove(message.from_user.id)
         bot.reply_to(message, "Đã hủy thao tác nạp tiền.")
 
-    # Hàm này bắt TẤT CẢ tin nhắn, nhưng chỉ xử lý nếu ID nằm trong danh sách chờ
     @bot.message_handler(func=lambda m: m.from_user.id in waiting_for_amount)
     def xu_ly_nap(message):
-        # Bỏ qua nếu người dùng bấm các nút menu khác
         if message.text.startswith('/') or message.text in ["🎲 Tạo bàn", "🎯 Đặt cược", "📖 Luật chơi", "💸 Rút tiền", "👤 Hồ sơ"]: 
             if message.from_user.id in waiting_for_amount:
                 waiting_for_amount.remove(message.from_user.id)
@@ -37,29 +34,32 @@ def register_handlers(bot):
             bot.reply_to(message, "❌ Số tiền phải từ 10.000 đến 200.000. Vui lòng nhập lại hoặc gõ /huy.")
             return
 
-        # Xóa khỏi danh sách chờ
         waiting_for_amount.remove(message.from_user.id)
-        
         user_id = message.from_user.id
         ma_don = f"NAP{user_id}{so_tien}"
-        
-        # Tạo link QR (dùng định dạng PNG)
-        raw_url = f"https://img.vietqr.io/image/{SEPAY_BANK_BIN}-{SEPAY_BANK_NUMBER}-compact2.png?amount={so_tien}&addInfo={ma_don}&accountName={SEPAY_ACCOUNT_NAME}"
-        qr_url = urllib.parse.quote(raw_url, safe=':/?&=')
-        
         so_diem_nhan = int(so_tien / 10 * (1 - PHI_NAP))
         games_db.luu_giao_dich(user_id, "nap", so_tien, so_diem_nhan, ma_don)
 
-        # Gửi tin nhắn kèm nút bấm mở link (Tránh lỗi Telegram không tải được ảnh)
-        kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("📲 BẤM VÀO ĐÂY ĐỂ LẤY MÃ QR", url=qr_url))
-
-        text = (
-            f"✅ Tạo đơn nạp thành công!\n\n"
-            f"💵 Số tiền: {so_tien:,}đ\n"
-            f"📝 Nội dung CK: <code>{ma_don}</code>\n"
-            f"💰 Điểm nhận: {so_diem_nhan} (đã trừ 2% phí)\n\n"
-            f"👇 Bấm nút bên dưới để mở mã QR và chuyển khoản."
-        )
+        # LINK TẠO MÃ QR CHUẨN CỦA SEPAY (GIỐNG HỆT ẢNH BẠN GỬI)
+        raw_url = f"https://vietqr.app/img?bank=TPBank&acc={SEPAY_BANK_NUMBER}&template=compact&amount={so_tien}&des={ma_don}&showinfo=true&holder={SEPAY_ACCOUNT_NAME}"
         
-        bot.reply_to(message, text, reply_markup=kb, parse_mode='HTML')
+        # Mã hóa URL để xử lý dấu cách trong tên chủ thẻ
+        qr_url = urllib.parse.quote(raw_url, safe=':/?&=')
+
+        # Gửi ảnh QR và thông tin
+        try:
+            bot.send_photo(
+                message.chat.id, 
+                photo=qr_url, 
+                caption=f"✅ Tạo đơn nạp thành công!\n\n"
+                        f"💵 Số tiền: {so_tien:,}đ\n"
+                        f"📝 Nội dung CK: <code>{ma_don}</code>\n"
+                        f"💰 Điểm nhận: {so_diem_nhan} (đã trừ 2% phí)\n\n"
+                        f"👇 Quét mã QR để thanh toán. Hệ thống sẽ tự động cộng điểm sau 1-2 phút.",
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            # Nếu Telegram lỗi không hiển thị được ảnh, gửi link dự phòng
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("📲 BẤM VÀO ĐÂY ĐỂ LẤY MÃ QR", url=qr_url))
+            bot.reply_to(message, f"✅ Đã tạo đơn nạp {so_tien:,}đ.\nBấm nút bên dưới để lấy mã QR thanh toán:", reply_markup=kb)
