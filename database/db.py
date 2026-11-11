@@ -5,7 +5,7 @@ from config import DB_PATH
 def get_conn():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = sqlite3.Row # Giúp truy vấn dữ liệu dạng dict (vd: row['diem'])
     return conn
 
 def init_db():
@@ -20,7 +20,7 @@ def init_db():
         diem INTEGER DEFAULT 0
     )''')
     
-    # 2. Bảng bàn chơi
+    # 2. Bảng quản lý bàn chơi
     c.execute('''CREATE TABLE IF NOT EXISTS bans (
         ban_id INTEGER PRIMARY KEY AUTOINCREMENT, 
         cai_id INTEGER, 
@@ -30,7 +30,7 @@ def init_db():
         message_ids TEXT
     )''')
     
-    # 3. Bảng lịch sử cược
+    # 3. Bảng lịch sử đặt cược
     c.execute('''CREATE TABLE IF NOT EXISTS cuoc (
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
         ban_id INTEGER, 
@@ -39,7 +39,7 @@ def init_db():
         so_diem INTEGER
     )''')
     
-    # 4. Bảng giao dịch (nạp tiền qua SePay)
+    # 4. Bảng giao dịch nạp tiền (Qua SePay)
     c.execute('''CREATE TABLE IF NOT EXISTS giao_dich (
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
         user_id INTEGER, 
@@ -50,7 +50,7 @@ def init_db():
         trang_thai TEXT DEFAULT 'cho'
     )''')
     
-    # 5. Bảng yêu cầu rút (Có thêm cột ten_chu_the)
+    # 5. Bảng yêu cầu rút tiền (Có thêm Tên chủ thẻ)
     c.execute('''CREATE TABLE IF NOT EXISTS yeu_cau_rut (
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
         user_id INTEGER, 
@@ -62,3 +62,4 @@ def init_db():
     
     conn.commit()
     conn.close()
+    print("✅ Database đã sẵn sàng.")
