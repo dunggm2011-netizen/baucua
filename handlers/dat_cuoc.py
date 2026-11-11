@@ -5,7 +5,6 @@ import database.games as games_db
 from database.db import get_conn
 
 def register_handlers(bot):
-    # 1. NÚT "🎯 Đặt cược" -> Hiện danh sách các bàn đang mở
     @bot.message_handler(func=lambda m: m.text == "🎯 Đặt cược")
     def hien_danh_sach_ban(message):
         conn = get_conn()
@@ -13,24 +12,22 @@ def register_handlers(bot):
         conn.close()
         
         if not bans:
-            bot.reply_to(message, "❌ Hiện không có bàn nào đang mở. Hãy chờ người khác tạo bàn.")
+            bot.reply_to(message, "❌ Hiện không có bàn nào đang mở.")
             return
             
         kb = InlineKeyboardMarkup()
         for b in bans:
-            trang_thai = "🟢 Đang cược" if b['trang_thai'] == 'dang_cho' else "🔴 Đã khóa (Chờ sóc)"
-            kb.add(InlineKeyboardButton(f"Bàn #{b['ban_id']} ({trang_thai})", callback_data=f"vaoban_{b['ban_id']}"))
+            kb.add(InlineKeyboardButton(f"Bàn #{b['ban_id']} (Cái: {b['cai_id']})", callback_data=f"vaoban_{b['ban_id']}"))
             
-        bot.reply_to(message, "Chọn bàn bạn muốn vào đặt cược:", reply_markup=kb)
+        bot.reply_to(message, "Chọn bàn bạn muốn vào:", reply_markup=kb)
 
-    # 2. Khi chọn bàn -> Hiện 6 con vật
     @bot.callback_query_handler(func=lambda call: call.data.startswith('vaoban_'))
     def vao_ban(call):
         ban_id = int(call.data.split('_')[1])
         ban = games_db.get_ban(ban_id)
         
-        if ban['trang_thai'] != 'dang_cho':
-            bot.answer_callback_query(call.id, "Bàn này đã hết giờ cược, chờ người khác sóc nhé!", show_alert=True)
+        if not ban or ban['trang_thai'] not in ('dang_cho', 'het_gio'):
+            bot.answer_callback_query(call.id, "Bàn này đã bị xoá hoặc không tồn tại!", show_alert=True)
             return
             
         kb = InlineKeyboardMarkup()
@@ -43,7 +40,6 @@ def register_handlers(bot):
         
         bot.send_message(call.message.chat.id, f"Bạn đang vào Bàn #{ban_id}.\nGõ lệnh `/cuoc <số tiền>` hoặc chọn con vật bên dưới:", reply_markup=kb, parse_mode='Markdown')
 
-    # 3. Chọn con vật -> Hiện các mệnh giá (10k, 50k, 100k...)
     @bot.callback_query_handler(func=lambda call: call.data.startswith('choncon_'))
     def chon_con(call):
         parts = call.data.split('_')
@@ -51,8 +47,7 @@ def register_handlers(bot):
         ban_id = int(parts[2])
         
         kb = InlineKeyboardMarkup()
-        menh_gia = [100, 500, 1000, 5000, 10000] # Tính bằng điểm (100đ = 1k VNĐ)
-        
+        menh_gia = [100, 500, 1000, 5000, 10000]
         row = []
         for mg in menh_gia:
             row.append(InlineKeyboardButton(f"{mg} điểm", callback_data=f"cuoc_{con}_{ban_id}_{mg}"))
@@ -62,13 +57,10 @@ def register_handlers(bot):
         
         bot.edit_message_text(
             f"Bạn chọn cửa **{TEN_CON_VAT[con]}** ở Bàn #{ban_id}.\nChọn mệnh giá cược:", 
-            chat_id=call.message.chat.id, 
-            message_id=call.message.message_id, 
-            reply_markup=kb,
-            parse_mode='Markdown'
+            chat_id=call.message.chat.id, message_id=call.message.message_id, 
+            reply_markup=kb, parse_mode='Markdown'
         )
 
-    # 4. XỬ LÝ ĐẶT CƯỢC QUA NÚT (Callback)
     @bot.callback_query_handler(func=lambda call: call.data.startswith('cuoc_'))
     def xu_ly_cuoc(call):
         parts = call.data.split('_')
@@ -78,8 +70,12 @@ def register_handlers(bot):
         u = call.from_user
         
         ban = games_db.get_ban(ban_id)
-        if not ban or ban['trang_thai'] != 'dang_cho':
-            bot.answer_callback_query(call.id, "⏰ Bàn này đã hết giờ đặt cược!", show_alert=True)
+        if not ban or ban['trang_thai'] not in ('dang_cho', 'het_gio'):
+            bot.answer_callback_query(call.id, "⏰ Bàn này đã bị xoá!", show_alert=True)
+            return
+        
+        if ban['cai_id'] == u.id:
+            bot.answer_callback_query(call.id, "❌ Bạn là Nhà Cái, không thể tự đặt cược!", show_alert=True)
             return
             
         if not users_db.tru_diem(u.id, so_diem):
@@ -87,33 +83,32 @@ def register_handlers(bot):
             return
 
         games_db.luu_cuoc(ban_id, u.id, con, so_diem)
+        users_db.cong_tien_cuoc(u.id, so_diem) # CỘNG DỒN TIỀN CƯỢC
+        
         bot.answer_callback_query(call.id, f"✅ Đã cược {so_diem} điểm vào {TEN_CON_VAT[con]}")
         bot.send_message(call.message.chat.id, f"✅ User {u.full_name} đã cược {so_diem} điểm vào {TEN_CON_VAT[con]} (Bàn #{ban_id})")
 
-    # 5. XỬ LÝ ĐẶT CƯỢC QUA LỆNH /cuoc <số tiền> (Mặc định người dùng nhập con vật)
     @bot.message_handler(commands=['cuoc'])
     def lenh_cuoc(message):
         parts = message.text.split()
         if len(parts) < 2:
             bot.reply_to(message, "Cú pháp: `/cuoc <số tiền>`\nVí dụ: `/cuoc 1000`", parse_mode='Markdown')
             return
-            
-        try:
-            so_diem = int(parts[1])
+        try: so_diem = int(parts[1])
         except:
-            bot.reply_to(message, "Số tiền không hợp lệ.")
-            return
+            bot.reply_to(message, "Số tiền không hợp lệ."); return
             
-        # Tìm bàn gần nhất đang mở trong group chat này
         conn = get_conn()
-        ban = conn.execute("SELECT * FROM bans WHERE chat_id=? AND trang_thai='dang_cho' ORDER BY ban_id DESC LIMIT 1", (message.chat.id,)).fetchone()
+        ban = conn.execute("SELECT * FROM bans WHERE chat_id=? AND (trang_thai='dang_cho' OR trang_thai='het_gio') ORDER BY ban_id DESC LIMIT 1", (message.chat.id,)).fetchone()
         conn.close()
         
         if not ban:
-            bot.reply_to(message, "❌ Hiện không có bàn nào đang mở trong nhóm này.")
+            bot.reply_to(message, "❌ Hiện không có bàn nào đang mở trong nhóm này."); return
+            
+        if ban['cai_id'] == message.from_user.id:
+            bot.reply_to(message, "❌ Bạn là Nhà Cái của bàn này, không thể tự đặt cược!")
             return
             
-        # Nếu dùng lệnh trực tiếp, yêu cầu họ bấm nút chọn con vật
         kb = InlineKeyboardMarkup()
         row = []
         for con in TEN_CON_VAT:
