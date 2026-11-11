@@ -19,7 +19,7 @@ def get_diem(user_id):
 def cong_diem(user_id, so_diem):
     conn = get_conn()
     conn.execute('UPDATE users SET diem = diem + ? WHERE user_id=?', (so_diem, user_id))
-    conn.commit()
+    conn.commit() # Cực kỳ quan trọng: Lưu thay đổi vào file
     conn.close()
 
 def tru_diem(user_id, so_diem):
