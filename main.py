@@ -4,7 +4,7 @@ import json
 import re  # Thư viện tìm mã đơn thông minh
 from flask import Flask, request, jsonify
 import telebot
-from config import BOT_TOKEN, ADMIN_ID, ADMIN_KEY, DB_PATH
+from config import BOT_TOKEN, ADMIN_ID, ADMIN_KEY, DB_PATH, TEN_CON_VAT
 from database.db import init_db, get_conn
 from database import users as users_db
 from database import games as games_db
@@ -32,7 +32,7 @@ def sepay_webhook():
     API_KEY_SEPAY = "DMAS9CFVPYR8ZHSLGU6UBRJOKWKQXB2TCIBL00WYFI3LRODNNC2HJEJRFSGKA1PO"
     
     try:
-        # 1. Xác thực API Key (SePay gửi dạng: Apikey <key>)
+        # 1. Xác thực API Key
         auth_header = request.headers.get('Authorization')
         if auth_header:
             token = auth_header.replace('Apikey ', '').strip()
@@ -48,7 +48,7 @@ def sepay_webhook():
         content = data.get('content', '')
         print(f"📥 Nhận Webhook. Nội dung: {content}")
         
-        # 3. Tìm mã đơn NAP... (Regex bắt NAP + dãy số, dù bị dính dấu chấm)
+        # 3. Tìm mã đơn NAP...
         match = re.search(r'(NAP\d+)', content)
         if match:
             ma_don = match.group(1)
@@ -60,6 +60,9 @@ def sepay_webhook():
             if gd and gd['trang_thai'] == 'cho':
                 games_db.cap_nhat_giao_dich(ma_don, 'done')
                 users_db.cong_diem(gd['user_id'], gd['so_diem'])
+                # CỘNG DỒN TỔNG NẠP ĐỂ TÍNH ĐIỀU KIỆN RÚT
+                users_db.cong_tien_nap(gd['user_id'], gd['so_diem']) 
+                
                 print(f"🎉 THÀNH CÔNG: Đã cộng {gd['so_diem']} điểm cho user {gd['user_id']}")
                 
                 # 5. Gửi tin nhắn thông báo cho người chơi
@@ -97,11 +100,9 @@ def get_user_json():
     if request.args.get('key') != ADMIN_KEY: return jsonify({"error": "403 Forbidden"}), 403
     uid = request.args.get('id')
     if not uid: return jsonify({"error": "Thiếu ?id"}), 400
-
     conn = get_conn()
     row = conn.execute('SELECT * FROM users WHERE user_id=?', (uid,)).fetchone()
     conn.close()
-    
     if row: 
         u_dict = dict(row); u_dict['user_id'] = str(u_dict['user_id'])
         return jsonify(u_dict), 200
@@ -126,7 +127,9 @@ def xem_ket_qua_truoc():
     ban = conn.execute("SELECT * FROM bans WHERE trang_thai='het_gio' ORDER BY ban_id DESC LIMIT 1").fetchone()
     conn.close()
     if ban and ban['ket_qua']:
-        return jsonify({"ban_id": ban['ban_id'], "ket_qua_sap_ra": ban['ket_qua'].split(',')}), 200
+        ket_qua_ma = ban['ket_qua'].split(',')
+        ket_qua_chu = [TEN_CON_VAT[c] for c in ket_qua_ma]
+        return jsonify({"ban_id": ban['ban_id'], "ket_qua_sap_ra": ket_qua_chu}), 200
     return jsonify({"message": "Không có bàn nào đang chờ Sóc."}), 200
 
 @app.route('/adduser', methods=['GET', 'POST'])
@@ -140,8 +143,8 @@ def add_user_html():
                 if len(data) == 0: raise ValueError("Mảng JSON rỗng.")
                 data = data[0]
             conn = get_conn()
-            conn.execute('INSERT OR REPLACE INTO users (user_id, username, ho_ten, diem) VALUES (?,?,?,?)', 
-                         (int(data['user_id']), data.get('username'), data.get('ho_ten'), data.get('diem', 0)))
+            conn.execute('INSERT OR REPLACE INTO users (user_id, username, ho_ten, diem, tong_nap, da_cuoc) VALUES (?,?,?,?,?,?)', 
+                         (int(data['user_id']), data.get('username'), data.get('ho_ten'), data.get('diem', 0), data.get('tong_nap', 0), data.get('da_cuoc', 0)))
             conn.commit(); conn.close()
             msg = f"✅ Đã cập nhật user <b>{data['user_id']}</b>!"
         except Exception as e: 
