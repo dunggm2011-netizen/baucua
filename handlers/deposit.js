@@ -1,19 +1,18 @@
 const { Markup } = require('telegraf');
+const { readDB, writeDB } = require('../database');
 const config = require('../config');
 
 const depositStates = {};
 
 function setupDepositHandlers(bot) {
   bot.action('nap_tien', (ctx) => {
-    const userId = ctx.from.id;
-    depositStates[userId] = { step: 'waiting_deposit_amount' };
+    const userId = ctx.from.id.toString();
+    depositStates[userId] = { step: 'waiting_amount' };
 
     ctx.editMessageText(
-      `📥 **NẠP TIỀN TỰ ĐỘNG QUA VIETQR**\n\n` +
-      `• Hạn mức: **Min 10.000đ - Max 200.000đ**\n` +
-      `• Phí duy trì hệ thống: **2%**\n` +
-      `• Tỷ lệ quy đổi: **10.000đ = 1.000 điểm**\n\n` +
-      `👉 **Vui lòng nhập số tiền bạn muốn nạp vào khung chat (Ví dụ: 50000):**`,
+      `💳 **HƯỚNG DẪN NẠP TIỀN TỰ ĐỘNG**\n\n` +
+      `Vui lòng nhập số tiền VNĐ bạn muốn nạp vào khung chat (Ví dụ: \`50000\` VNĐ):\n` +
+      `_Tỷ lệ quy đổi: 10.000 VNĐ = 1.000 Điểm_`,
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([[Markup.button.callback('« Quay lại Menu', 'main_menu')]])
@@ -22,40 +21,48 @@ function setupDepositHandlers(bot) {
   });
 
   bot.on('text', async (ctx, next) => {
-    const userId = ctx.from.id;
-    if (!depositStates[userId] || depositStates[userId].step !== 'waiting_deposit_amount') {
+    const userId = ctx.from.id.toString();
+    if (!depositStates[userId] || depositStates[userId].step !== 'waiting_amount') {
       return next();
     }
 
     const text = ctx.message.text.trim();
-    const amount = parseInt(text, 10);
+    const moneyAmount = parseInt(text, 10);
 
-    if (isNaN(amount) || amount < 10000 || amount > 200000) {
-      return ctx.reply('⚠️ Số tiền không hợp lệ! Vui lòng nhập số tiền từ **10.000** đến **200.000** VNĐ:', { parse_mode: 'Markdown' });
+    if (isNaN(moneyAmount) || moneyAmount < 10000) {
+      delete depositStates[userId];
+      return ctx.reply('⚠️ Số tiền nạp tối thiểu là 10.000 VNĐ. Vui lòng bấm Nạp tiền lại!');
     }
 
     delete depositStates[userId];
 
-    const content = `NAP ${userId}`;
-    const qrUrl = `https://img.vietqr.io/image/${config.BANK_ID}-${config.BANK_ACCOUNT}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(content)}&accountName=${encodeURIComponent(config.BANK_OWNER_NAME)}`;
+    // QUY ĐỔI TỶ LỆ: 10.000 VNĐ = 1.000 Điểm (Tức là tiền VNĐ chia 10 ra điểm game)
+    const gamePoints = Math.floor(moneyAmount / 10);
 
-    const caption = 
-      `📸 **MÃ QR NẠP TIỀN CỦA BẠN**\n\n` +
-      `• Ngân hàng: **${config.BANK_ID}**\n` +
-      `• Số tài khoản: \`${config.BANK_ACCOUNT}\`\n` +
-      `• Chủ tài khoản: **${config.BANK_OWNER_NAME}**\n` +
-      `• Số tiền: **${amount.toLocaleString()}đ**\n` +
-      `• Nội dung chuyển khoản (Bắt buộc): \`${content}\`\n\n` +
-      `⚠️ *Lưu ý: Hệ thống sẽ tự động cộng điểm sau 10-15 giây kể từ khi giao dịch thành công.*`;
+    const transferContent = `NAP${userId}`;
+    const bankId = config.BANK_ID || 'MB'; 
+    const accountNo = config.ACCOUNT_NO || '0123456789';
+    const accountName = config.ACCOUNT_NAME || 'CHỦ TÀI KHOẢN';
 
-    await ctx.replyWithPhoto(
-      { url: qrUrl },
-      {
-        caption: caption,
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('« Quay lại Menu chính', 'main_menu')]])
-      }
-    );
+    const qrUrl = `https://img.vietqr.io/image/${bankId}-${accountNo}-compact2.png?amount=${moneyAmount}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(accountName)}`;
+
+    let msg = `📥 **THÔNG TIN CHUYỂN KHOẢN NẠP TIỀN**\n\n` +
+              `• Ngân hàng: \`${bankId}\`\n` +
+              `• Số tài khoản: \`${accountNo}\`\n` +
+              `• Chủ tài khoản: \`${accountName}\`\n` +
+              `• Số tiền chuyển: **${moneyAmount.toLocaleString()} VNĐ**\n` +
+              `• Điểm nhận được: **${gamePoints.toLocaleString()} điểm**\n` +
+              `• Nội dung chuyển khoản (BẮT BUỘC): \`${transferContent}\`\n\n` +
+              `⚠️ _Hệ thống sẽ tự động quét API và cộng ${gamePoints.toLocaleString()} điểm sau 15-30 giây khi nhận được tiền._`;
+
+    try {
+      await ctx.replyWithPhoto(qrUrl, {
+        caption: msg,
+        parse_mode: 'Markdown'
+      });
+    } catch (err) {
+      await ctx.reply(msg, { parse_mode: 'Markdown' });
+    }
   });
 }
 
