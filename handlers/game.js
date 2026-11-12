@@ -23,7 +23,6 @@ function setupGameHandlers(bot) {
     let db = readDB();
     const userBalance = db.users[userId]?.balance || 0;
 
-    // Điều kiện tạo bàn: tối thiểu 100.000 điểm
     if (userBalance < 100000) {
       return ctx.answerCbQuery('⚠️ Bạn cần tối thiểu 100.000 điểm để làm cái!', { show_alert: true });
     }
@@ -49,7 +48,7 @@ function setupGameHandlers(bot) {
       ...getTableKeyboard(tableId)
     });
 
-    db = readDB(); // đọc lại để tránh ghi đè nếu có thay đổi khác
+    db = readDB();
     if (db.tables[tableId]) {
       db.tables[tableId].chatId = ctx.chat.id;
       db.tables[tableId].messageId = sentMsg.message_id;
@@ -102,11 +101,20 @@ function setupGameHandlers(bot) {
           return;
         }
 
-        // Mở bát khi đã hết giờ (timeLeft đang là 1, sắp về 0)
+        // Hết giờ: update "0 giây" rồi mở bát
         if (table.timeLeft <= 1) {
           clearInterval(timer);
           table.timeLeft = 0;
           writeDB(db);
+
+          try {
+            await bot.telegram.editMessageText(
+              table.chatId, table.messageId, null,
+              buildTableText(tableId, table),
+              { parse_mode: 'Markdown', ...getTableKeyboard(tableId) }
+            );
+          } catch (e) {}
+
           await executeRoll(bot, tableId, true);
           return;
         }
@@ -114,18 +122,13 @@ function setupGameHandlers(bot) {
         table.timeLeft -= 1;
         writeDB(db);
 
-        // Update mỗi giây để đếm lùi mượt, không bị "đứng" ở bất kỳ số nào
         try {
           await bot.telegram.editMessageText(
-            table.chatId,
-            table.messageId,
-            null,
+            table.chatId, table.messageId, null,
             buildTableText(tableId, table),
             { parse_mode: 'Markdown', ...getTableKeyboard(tableId) }
           );
-        } catch (e) {
-          // Message có thể đã bị xoá hoặc không đổi nội dung → bỏ qua
-        }
+        } catch (e) {}
       } catch (err) {
         console.error('Lỗi ở bộ đếm ngược:', err.message);
       }
@@ -143,16 +146,12 @@ function setupGameHandlers(bot) {
 
     const userId = ctx.from.id.toString();
 
-    // Xoá state cũ nếu có timeout trước đó
     if (userBetStates[userId]?.timeoutId) {
       clearTimeout(userBetStates[userId].timeoutId);
     }
 
-    // Đặt timeout tự xoá state nếu user không nhập tiền trong 60s
     const timeoutId = setTimeout(() => {
-      if (userBetStates[userId]) {
-        delete userBetStates[userId];
-      }
+      if (userBetStates[userId]) delete userBetStates[userId];
     }, BET_STATE_TIMEOUT);
 
     userBetStates[userId] = { tableId, choice, timeoutId };
@@ -167,7 +166,6 @@ function setupGameHandlers(bot) {
     const text = ctx.message.text.trim();
     const amount = Number(text);
 
-    // Chỉ chấp nhận số nguyên dương (chặn "1000abc")
     if (!Number.isInteger(amount) || amount <= 0) {
       if (userBetStates[userId]?.timeoutId) clearTimeout(userBetStates[userId].timeoutId);
       delete userBetStates[userId];
@@ -184,10 +182,7 @@ function setupGameHandlers(bot) {
       return ctx.reply('⚠️ Bàn chơi đã hết thời gian cược!');
     }
 
-    // Đảm bảo user tồn tại trong DB
-    if (!db.users[userId]) {
-      db.users[userId] = { balance: 0 };
-    }
+    if (!db.users[userId]) db.users[userId] = { balance: 0 };
 
     if (db.users[userId].balance < amount) {
       return ctx.reply(`⚠️ Số dư của bạn không đủ ${amount.toLocaleString()} điểm để cược!`);
@@ -208,9 +203,7 @@ function setupGameHandlers(bot) {
 
     try {
       await bot.telegram.editMessageText(
-        table.chatId,
-        table.messageId,
-        null,
+        table.chatId, table.messageId, null,
         buildTableText(tableId, table),
         { parse_mode: 'Markdown', ...getTableKeyboard(tableId) }
       );
@@ -270,22 +263,30 @@ function setupGameHandlers(bot) {
       const imageName = ANIMAL_IMAGES[mainResultAnimal] || 'bau.jpg';
       const imagePath = path.join(__dirname, '../assets', imageName);
 
-      if (fs.existsSync(imagePath)) {
-        const photoInput = { source: fs.createReadStream(imagePath) };
-        if (table.chatId) {
-          await bot.telegram.sendPhoto(table.chatId, photoInput, {
+      if (fs.existsSync(imagePath) && table.chatId) {
+        try {
+          if (table.messageId) {
+            await bot.telegram.deleteMessage(table.chatId, table.messageId).catch(() => {});
+          }
+          await bot.telegram.sendPhoto(table.chatId, { source: fs.createReadStream(imagePath) }, {
             caption: summaryText,
             parse_mode: 'Markdown',
             ...resultKeyboard
           });
+        } catch (err) {
+          console.error('Lỗi gửi ảnh kết quả:', err.message);
+          if (table.chatId && table.messageId) {
+            await bot.telegram.editMessageText(table.chatId, table.messageId, null, summaryText, {
+              parse_mode: 'Markdown',
+              ...resultKeyboard
+            }).catch(() => {});
+          }
         }
-      } else {
-        if (table.chatId && table.messageId) {
-          await bot.telegram.editMessageText(table.chatId, table.messageId, null, summaryText, {
-            parse_mode: 'Markdown',
-            ...resultKeyboard
-          });
-        }
+      } else if (table.chatId && table.messageId) {
+        await bot.telegram.editMessageText(table.chatId, table.messageId, null, summaryText, {
+          parse_mode: 'Markdown',
+          ...resultKeyboard
+        }).catch(() => {});
       }
     } catch (err) {
       console.error('Lỗi khi thực hiện mở bát:', err.message);
