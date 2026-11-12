@@ -97,7 +97,7 @@ function setupGameHandlers(bot) {
     ]);
   }
 
-  // 2. ĐẾM NGƯỢC (Dừng lại và hiện nút Sóc khi hết giờ)
+  // 2. ĐẾM NGƯỢC
   function startCountdown(bot, tableId) {
     const timer = setInterval(async () => {
       try {
@@ -112,10 +112,9 @@ function setupGameHandlers(bot) {
         if (table.timeLeft <= 1) {
           clearInterval(timer);
           table.timeLeft = 0;
-          table.status = 'waiting_roll'; // Chuyển trạng thái chờ sóc
+          table.status = 'waiting_roll'; 
           writeDB(db);
 
-          // Hiện nút Sóc
           try {
             await bot.telegram.editMessageText(
               table.chatId, table.messageId, null,
@@ -142,34 +141,36 @@ function setupGameHandlers(bot) {
     }, 1000);
   }
 
-  // 3. CHỦ XỊ BẤM NÚT SÓC
+  // 3. NÚT SÓC (Dành cho chủ xị)
   bot.action(/roll_(.+)/, async (ctx) => {
-    const tableId = ctx.match[1];
-    const userId = ctx.from.id;
+    try { await ctx.answerCbQuery('🎲 Đang sóc...'); } catch (e) {}
 
-    let db = readDB();
-    const table = db.tables[tableId];
+    try {
+      const tableId = ctx.match[1];
+      const userId = ctx.from.id;
 
-    if (!table || table.status !== 'waiting_roll') {
-      return ctx.answerCbQuery('⚠️ Ván này đã được sóc hoặc không tồn tại!', { show_alert: true });
+      let db = readDB();
+      const table = db.tables[tableId];
+
+      if (!table || table.status !== 'waiting_roll') {
+        return ctx.reply('⚠️ Ván này đã được sóc hoặc không tồn tại!');
+      }
+
+      if (String(table.hostId) !== String(userId)) {
+        return ctx.reply('⚠️ Chỉ chủ xị mới được bấm nút sóc!');
+      }
+
+      table.status = 'rolling';
+      writeDB(db);
+      
+      await executeRoll(bot, tableId, false);
+      
+    } catch (err) {
+      console.error('❌ LỖI Ở NÚT SÓC:', err.message);
     }
-
-    // Kiểm tra xem có phải chủ xị không
-    if (table.hostId !== userId) {
-      return ctx.answerCbQuery('⚠️ Chỉ chủ xị mới được bấm nút sóc!', { show_alert: true });
-    }
-
-    // Đổi trạng thái để tránh bấm 2 lần
-    table.status = 'rolling';
-    writeDB(db);
-
-    await ctx.answerCbQuery('🎲 Đang sóc...');
-    
-    // Gọi hàm mở bát
-    await executeRoll(bot, tableId, false);
   });
 
-  // ĐẶT CƯỢC
+  // 4. ĐẶT CƯỢC
   bot.action(/bet_(.+)_(.+)/, (ctx) => {
     const tableId = ctx.match[1];
     const choice = ctx.match[2];
@@ -219,6 +220,7 @@ function setupGameHandlers(bot) {
     }
 
     if (!db.users[userId]) db.users[userId] = { balance: 0 };
+    if (isNaN(db.users[userId].balance)) db.users[userId].balance = 0;
 
     if (db.users[userId].balance < amount) {
       return ctx.reply(`⚠️ Số dư của bạn không đủ ${amount.toLocaleString()} điểm để cược!`);
@@ -246,7 +248,7 @@ function setupGameHandlers(bot) {
     } catch (e) {}
   });
 
-  // 4. MỞ BÁT VÀ TRẢ THƯỞNG
+  // 5. MỞ BÁT VÀ TRẢ THƯỞNG
   async function executeRoll(bot, tableId, isAuto = false) {
     try {
       let db = readDB();
@@ -266,6 +268,8 @@ function setupGameHandlers(bot) {
       if (table.bets && Object.keys(table.bets).length > 0) {
         for (const [playerId, userBets] of Object.entries(table.bets)) {
           if (!db.users[playerId]) db.users[playerId] = { balance: 0 };
+          if (isNaN(db.users[playerId].balance)) db.users[playerId].balance = 0;
+
           let playerTotalBet = 0, playerTotalPayout = 0;
           for (const [animal, amount] of Object.entries(userBets)) {
             playerTotalBet += amount;
@@ -275,7 +279,10 @@ function setupGameHandlers(bot) {
             }
           }
           const playerNetProfit = playerTotalPayout - playerTotalBet;
+          
           db.users[playerId].balance += playerNetProfit;
+          if (isNaN(db.users[playerId].balance)) db.users[playerId].balance = 0;
+          
           hostNetChange -= playerNetProfit;
           summaryText += `- User \`${playerId}\`: ${playerNetProfit >= 0 ? '+' : ''}${Math.round(playerNetProfit).toLocaleString()} điểm\n`;
         }
@@ -284,7 +291,9 @@ function setupGameHandlers(bot) {
       }
 
       if (db.users[hostId]) {
+        if (isNaN(db.users[hostId].balance)) db.users[hostId].balance = 0;
         db.users[hostId].balance += hostNetChange;
+        if (isNaN(db.users[hostId].balance)) db.users[hostId].balance = 0;
         summaryText += `\n👑 Chủ xị tổng kết: **${hostNetChange >= 0 ? '+' : ''}${Math.round(hostNetChange).toLocaleString()} điểm**`;
       }
 
@@ -293,54 +302,93 @@ function setupGameHandlers(bot) {
       writeDB(db);
 
       const resultKeyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('🔄 Ván Tiếp Theo', `nextgame_${hostId}`)],
         [Markup.button.callback('🗑️ Xóa bàn', `close_table_${hostId}`)]
       ]);
 
+      // Hiển thị kết quả dạng TEXT trước để không bị xoay loading
+      try {
+        await bot.telegram.editMessageText(
+          table.chatId, table.messageId, null,
+          summaryText,
+          { parse_mode: 'Markdown', ...resultKeyboard }
+        );
+      } catch (e) {
+        await bot.telegram.sendMessage(table.chatId, summaryText, { parse_mode: 'Markdown', ...resultKeyboard }).catch(() => {});
+      }
+
+      // Gửi ảnh con vật dưới dạng tin nhắn mới
       const mainResultAnimal = resultDice[0];
       const imageName = ANIMAL_IMAGES[mainResultAnimal] || 'bau.jpg';
       const imagePath = path.join(__dirname, '../assets', imageName);
-
-      let sentOk = false;
-
-      let safeCaption = summaryText;
-      if (safeCaption.length > 1024) safeCaption = safeCaption.substring(0, 1020) + '...';
 
       if (fs.existsSync(imagePath) && table.chatId) {
         try {
           await bot.telegram.sendPhoto(
             table.chatId,
             { source: fs.createReadStream(imagePath) },
-            { 
-              caption: safeCaption, 
-              parse_mode: 'Markdown', 
-              ...resultKeyboard 
-            }
+            { caption: `🎯 **${mainResultAnimal.toUpperCase()}**`, parse_mode: 'Markdown' }
           );
-          sentOk = true;
         } catch (err) {
-          console.error('❌ LỖI GỬI ẢNH KẾT QUẢ:', err.message);
+          console.error('❌ LỖI GỬI ẢNH:', err.message);
         }
-      } else {
-        console.error('❌ KHÔNG TÌM THẤY FILE ẢNH TẠI:', imagePath);
       }
 
-      if (sentOk) {
-        if (table.messageId) {
-          await bot.telegram.deleteMessage(table.chatId, table.messageId).catch(() => {});
-        }
-      } else {
-        if (table.chatId && table.messageId) {
-          await bot.telegram.editMessageText(
-            table.chatId, table.messageId, null, summaryText,
-            { parse_mode: 'Markdown', ...resultKeyboard }
-          ).catch(() => {});
-        }
-      }
     } catch (err) {
       console.error('Lỗi khi thực hiện mở bát:', err.message);
     }
   }
 
+  // 6. NÚT VÁN TIẾP THEO
+  bot.action(/nextgame_(.+)/, async (ctx) => {
+    try { await ctx.answerCbQuery('🔄 Đang tạo ván mới...'); } catch (e) {}
+
+    const hostId = ctx.match[1];
+    const userId = ctx.from.id;
+
+    if (String(hostId) !== String(userId)) {
+      return ctx.reply('⚠️ Chỉ chủ xị mới có quyền tạo ván tiếp theo!');
+    }
+
+    let db = readDB();
+    const userBalance = db.users[userId]?.balance || 0;
+
+    if (userBalance < 100000) {
+      return ctx.reply('⚠️ Bạn cần tối thiểu 100.000 điểm để tiếp tục làm cái!');
+    }
+
+    const tableId = `table_${Date.now()}`;
+    const preGeneratedResult = [
+      ANIMALS[Math.floor(Math.random() * ANIMALS.length)],
+      ANIMALS[Math.floor(Math.random() * ANIMALS.length)],
+      ANIMALS[Math.floor(Math.random() * ANIMALS.length)]
+    ];
+
+    db.tables[tableId] = {
+      hostId: userId,
+      status: 'betting',
+      bets: {},
+      preResult: preGeneratedResult,
+      timeLeft: 50,
+      chatId: ctx.chat.id
+    };
+    writeDB(db);
+
+    const sentMsg = await ctx.editMessageText(buildTableText(tableId, db.tables[tableId]), {
+      parse_mode: 'Markdown',
+      ...getTableKeyboard(tableId)
+    });
+
+    db = readDB();
+    if (db.tables[tableId]) {
+      db.tables[tableId].messageId = sentMsg.message_id;
+      writeDB(db);
+    }
+
+    startCountdown(bot, tableId);
+  });
+
+  // 7. NÚT XOÁ BÀN
   bot.action(/close_table_(.+)/, (ctx) => {
     ctx.editMessageText(`🚪 **Bàn chơi đã được đóng hoàn toàn.**`, { parse_mode: 'Markdown' });
   });
