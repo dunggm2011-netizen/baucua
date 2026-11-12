@@ -1,79 +1,85 @@
-const { Markup } = require('telegraf');
-const { readDB, writeDB } = require('../database');
-const config = require('../config');
+const axios = require('axios');
+const { readDB, writeDB } = require('./database');
 
-const depositStates = {};
-
-function setupDepositHandlers(bot) {
-  bot.action('nap_tien', (ctx) => {
-    const userId = ctx.from.id.toString();
-    depositStates[userId] = { step: 'waiting_amount' };
-
-    ctx.editMessageText(
-      `💳 **HƯỚNG DẪN NẠP TIỀN TỰ ĐỘNG (Phí nạp: 2%)**\n\n` +
-      `Vui lòng nhập số tiền VNĐ bạn muốn nạp vào khung chat (Ví dụ: \`50000\` VNĐ):\n` +
-      `_Tỷ lệ quy đổi: 10.000 VNĐ = 1.000 Điểm (Áp dụng phí 2%)_`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('« Quay lại Menu', 'main_menu')]])
-      }
-    );
-  });
-
-  bot.on('text', async (ctx, next) => {
-    const userId = ctx.from.id.toString();
-    if (!depositStates[userId] || depositStates[userId].step !== 'waiting_amount') {
-      return next();
-    }
-
-    const text = ctx.message.text.trim();
-    const moneyAmount = parseInt(text, 10);
-
-    if (isNaN(moneyAmount) || moneyAmount < 10000) {
-      delete depositStates[userId];
-      return ctx.reply('⚠️ Số tiền nạp tối thiểu là 10.000 VNĐ. Vui lòng bấm Nạp tiền lại!');
-    }
-
-    delete depositStates[userId];
-
-    // Quy đổi điểm gốc: 10.000 VNĐ = 1.000 điểm (Tiền VNĐ chia 10)
-    const basePoints = Math.floor(moneyAmount / 10);
+// Hàm kiểm tra và xử lý nạp tiền tự động
+async function checkDeposits(bot) {
+  try {
+    // Thay link API và token của chị vào đây (hoặc lấy từ biến môi trường/config)
+    const apiUrl = 'https://thueapibank.vn/historyapitpbv2/73e4f7d402d32568163b9fd9f05e7be1'; 
+    const response = await axios.get(apiUrl);
     
-    // Trừ 2% phí nạp, phần còn lại là số điểm thực nhận vào game
-    const feePoints = Math.round(basePoints * 0.02);
-    const finalPoints = basePoints - feePoints;
+    if (response.data && response.data.status === 'success' && response.data.transactions) {
+      let db = readDB();
+      if (!db.historyTransactions) db.historyTransactions = []; // Lưu các mã GD đã xử lý để tránh cộng trùng
+      let hasNewUpdate = false;
 
-    const transferContent = `NAP${userId}`;
-    const bankId = config.BANK_ID || 'TPBank'; 
-    const accountNo = config.ACCOUNT_NO || '1000405178';
-    const accountName = config.ACCOUNT_NAME || 'NGUYEN CONG HOANG KHANG';
+      for (const tx of response.data.transactions) {
+        // Chỉ xử lý giao dịch tiền vào (IN) và chưa từng được xử lý trước đó
+        if (tx.type === 'IN' && !db.historyTransactions.includes(tx.transactionID)) {
+          const desc = tx.description.toUpperCase();
+          
+          // Dùng Regex tìm chữ NAP đi kèm theo các ký tự phía sau (ví dụ: NAP8183105705)
+          const match = desc.match(/NAP([A-Z0-9]+)/);
+          
+          if (match) {
+            const fullNapCode = match[0]; // VD: NAP8183105705
+            const rawIdentifier = match[1]; // Phần ID hoặc mã theo sau chữ NAP
+            
+            // Tìm xem user nào trong DB đang chờ mã này (hoặc lưu mã nạp kèm userId lúc tạo QR)
+            // Ở đây em hỗ trợ tìm user theo ID hoặc lưu trực tiếp mã nạp của user
+            let targetUserId = null;
+            
+            // Duyệt danh sách user xem có ai khớp mã nạp đang chờ không
+            for (const [userId, uData] of Object.entries(db.users || {})) {
+              // Giả sử trong user data chị lưu pendingDepositCode hoặc check theo ID nằm trong mã
+              if (uData.pendingCode === fullNapCode || rawIdentifier.includes(userId)) {
+                targetUserId = userId;
+                break;
+              }
+            }
 
-    // Link URL VietQR chuẩn
-    const qrUrl = `https://img.vietqr.io/image/${bankId}-${accountNo}-compact2.png?amount=${moneyAmount}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(accountName)}`;
+            if (targetUserId) {
+              const amount = tx.amount;
+              // Trừ phí nạp 2% (như chị đã cấu hình trước đó)
+              const realAmount = Math.floor(amount * 0.98); 
 
-    let msg = `📥 **THÔNG TIN CHUYỂN KHOẢN NẠP TIỀN**\n\n` +
-              `• Ngân hàng: \`${bankId}\`\n` +
-              `• Số tài khoản: \`${accountNo}\`\n` +
-              `• Chủ tài khoản: \`${accountName}\`\n` +
-              `• Số tiền chuyển: **${moneyAmount.toLocaleString()} VNĐ**\n` +
-              `• Điểm gốc: ${basePoints.toLocaleString()} điểm\n` +
-              `• Phí nạp (2%): -${feePoints.toLocaleString()} điểm\n` +
-              `• **Điểm thực nhận:** ⭐ **${finalPoints.toLocaleString()} điểm**\n\n` +
-              `• Nội dung chuyển khoản (BẮT BUỘC): \`${transferContent}\`\n\n` +
-              `⚠️ _Hệ thống sẽ tự động quét API và cộng ${finalPoints.toLocaleString()} điểm sau 15-30 giây khi nhận được tiền._`;
+              // Cộng điểm cho user
+              db.users[targetUserId].balance = (db.users[targetUserId].balance || 0) + realAmount;
+              
+              // Xóa mã chờ nạp để tránh dùng lại
+              delete db.users[targetUserId].pendingCode;
 
-    try {
-      // ĐÃ SỬA: Truyền URL trực tiếp dưới dạng object { url: qrUrl } để Telegraf gửi ảnh mượt mà 100%
-      await ctx.replyWithPhoto({ url: qrUrl }, {
-        caption: msg,
-        parse_mode: 'Markdown'
-      });
-    } catch (err) {
-      console.error('Lỗi gửi ảnh QR:', err.message);
-      // Dự phòng nếu lỗi gửi ảnh thì gửi text kèm link QR
-      await ctx.reply(`${msg}\n\n🔗 **Link mã QR của bạn:** ${qrUrl}`, { parse_mode: 'Markdown' });
+              // Đánh dấu giao dịch này đã xử lý
+              db.historyTransactions.push(tx.transactionID);
+              hasNewUpdate = true;
+
+              // Gửi tin nhắn thông báo thành công về Telegram cho khách
+              try {
+                await bot.telegram.sendMessage(
+                  targetUserId,
+                  `✅ **NẠP TIỀN THÀNH CÔNG!**\n\n` +
+                  `• Mã giao dịch: \`${tx.transactionID}\`\n` +
+                  `• Số tiền chuyển: **${amount.toLocaleString()} VNĐ**\n` +
+                  `• Phí (2%): **${(amount - realAmount).toLocaleString()} VNĐ**\n` +
+                  `• Điểm thực nhận: **+${realAmount.toLocaleString()} điểm**\n` +
+                  `• Số dư hiện tại: **${db.users[targetUserId].balance.toLocaleString()} điểm**`,
+                  { parse_mode: 'Markdown' }
+                );
+              } catch (err) {
+                console.log(`Không gửi được tin nhắn Telegram cho user ${targetUserId}:`, err.message);
+              }
+            }
+          }
+        }
+      }
+
+      if (hasNewUpdate) {
+        writeDB(db);
+      }
     }
-  });
+  } catch (error) {
+    console.error('Lỗi khi quét lịch sử ngân hàng:', error.message);
+  }
 }
 
-module.exports = { setupDepositHandlers };
+module.exports = { checkDeposits };
