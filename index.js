@@ -11,24 +11,36 @@ const { setupGiftcodeHandlers } = require('./handlers/giftcode');
 
 const bot = new Telegraf(config.BOT_TOKEN);
 
-// Khởi động Express Server cho Render
-setupServer();
+// ==================== 1. KÍCH HOẠT TẤT CẢ HANDLERS & SERVER ====================
+try {
+  setupMenuHandlers(bot);
+  setupGameHandlers(bot);
+  setupWithdrawHandlers(bot);
+  setupDepositHandlers(bot);
+  setupAdminHandlers(bot);
+  setupGiftcodeHandlers(bot);
+  console.log('✅ Đã nạp tất cả Telegram Handlers thành công!');
 
-// Đăng ký toàn bộ Handler
-setupMenuHandlers(bot);
-setupGameHandlers(bot);
-setupWithdrawHandlers(bot);
-setupDepositHandlers(bot);
-setupAdminHandlers(bot);
-setupGiftcodeHandlers(bot);
+  // Kích hoạt Web Server (giao diện quản lý /add, /xem,...)
+  setupServer(bot);
+  console.log('✅ Đã khởi chạy Web Server thành công!');
+} catch (error) {
+  console.error('❌ Lỗi khi khởi tạo handlers hoặc server:', error.message);
+}
 
-// Vòng lặp quét API ngân hàng mỗi 15 giây
-setInterval(() => checkBankTransactions(bot), 15000);
+// ==================== 2. VÒNG LẶP TỰ ĐỘNG QUÉT NẠP TIỀN ====================
+// Cứ mỗi 5 giây, gọi API ngân hàng qua bankService để tự động quét nội dung NAP và cộng điểm
+setInterval(() => {
+  checkBankTransactions(bot);
+}, 5000);
 
-// Khởi chạy Bot
+// ==================== 3. KHỞI ĐỘNG BOT TELEGRAM ====================
 bot.launch().then(() => {
-  console.log('🤖 Bot Telegram Bầu Cua đã khởi động thành công!');
+  console.log('🚀 Bot Telegram Bầu Cua & Hệ thống Nạp Tự Động đã sẵn sàng hoạt động!');
+}).catch((err) => {
+  console.error('❌ Lỗi khởi động bot:', err);
 });
 
+// Xử lý ngắt tiến trình an toàn
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
