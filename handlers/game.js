@@ -60,10 +60,10 @@ function setupGameHandlers(bot) {
   }
 
   function getTableKeyboard(tableId) {
+    // ĐÃ BỎ NÚT SÓC NGAY, CHỈ ĐỂ CÁC CỬA CƯỢC CHO NGƯỜI CHƠI
     return Markup.inlineKeyboard([
       [Markup.button.callback('🦌 Nai', `bet_${tableId}_Nai`), Markup.button.callback(' Bầu', `bet_${tableId}_Bầu`), Markup.button.callback('🐔 Gà', `bet_${tableId}_Gà`)],
-      [Markup.button.callback('🐟 Cá', `bet_${tableId}_Cá`), Markup.button.callback('🦀 Cua', `bet_${tableId}_Cua`), Markup.button.callback('🦐 Tôm', `bet_${tableId}_Tôm`)],
-      [Markup.button.callback('⚡ Sóc ngay (Chủ xị)', `roll_${tableId}`)]
+      [Markup.button.callback('🐟 Cá', `bet_${tableId}_Cá`), Markup.button.callback('🦀 Cua', `bet_${tableId}_Cua`), Markup.button.callback('🦐 Tôm', `bet_${tableId}_Tôm`)]
     ]);
   }
 
@@ -81,6 +81,7 @@ function setupGameHandlers(bot) {
 
       if (table.timeLeft <= 0) {
         clearInterval(timer);
+        // TỰ ĐỘNG MỞ BÁT KHI HẾT 50 GIÂY
         await executeRoll(bot, tableId, true);
       } else {
         writeDB(db);
@@ -104,32 +105,10 @@ function setupGameHandlers(bot) {
     if (!db.tables[tableId] || db.tables[tableId].status !== 'betting') {
       return ctx.answerCbQuery('⚠️ Bàn chơi đã kết thúc!', { show_alert: true });
     }
-    ctx.answerCbQuery(`Đã chọn ${choice}. Vui lòng nhập số điểm cược trong khung chat (100 - 100k):`);
+    ctx.answerCbQuery(`Đã chọn cửa ${choice}. Nhắn số điểm cược trong khung chat (100 - 100k):`);
   });
 
-  bot.on('text', (ctx, next) => {
-    // Xử lý cược nhanh khi user gửi số điểm
-    const text = ctx.message.text.trim();
-    const amount = parseInt(text, 10);
-    if (isNaN(amount) || amount < 100 || amount > 100000) return next();
-    // Logic cược có thể mở rộng ở đây nếu người chơi gửi số điểm sau khi bấm nút cửa
-    return next();
-  });
-
-  bot.action(/roll_(.+)/, async (ctx) => {
-    const tableId = ctx.match[1];
-    const userId = ctx.from.id;
-    let db = readDB();
-    const table = db.tables[tableId];
-
-    if (!table || table.hostId !== userId) {
-      return ctx.answerCbQuery('⚠️ Chỉ có Chủ xị mới có quyền mở bát!', { show_alert: true });
-    }
-
-    await executeRoll(bot, tableId, false, ctx);
-  });
-
-  async function executeRoll(bot, tableId, isAuto = false, ctx = null) {
+  async function executeRoll(bot, tableId, isAuto = false) {
     let db = readDB();
     const table = db.tables[tableId];
     if (!table) return;
@@ -141,7 +120,7 @@ function setupGameHandlers(bot) {
     resultDice.forEach(dice => { counts[dice] = (counts[dice] || 0) + 1; });
 
     let hostNetChange = 0;
-    let summaryText = `🎲 **KẾT QUẢ SÓC BẦU CUA ${isAuto ? '(TỰ ĐỘNG)' : ''}**\n\n`;
+    let summaryText = `🎲 **KẾT QUẢ SÓC BẦU CUA ${isAuto ? '(TỰ ĐỘNG HẾT GIỜ)' : ''}**\n\n`;
     summaryText += `🎯 Kết quả: **${resultDice.join(' - ')}**\n\n`;
     summaryText += `📊 **Tổng kết ván chơi:**\n`;
 
@@ -173,8 +152,9 @@ function setupGameHandlers(bot) {
     delete db.tables[tableId];
     writeDB(db);
 
+    // CHỈ CHỪA LẠI NÚT XÓA BÀN THEO YÊU CẦU CỦA BẠN (Đã bỏ nút tạo ván mới)
     const resultKeyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('🗑️ Xóa bàn', `close_table_${hostId}`), Markup.button.callback('🎲 Tạo ván mới', 'taoban')]
+      [Markup.button.callback('🗑️ Xóa bàn', `close_table_${hostId}`)]
     ]);
 
     const mainResultAnimal = resultDice[0];
@@ -184,17 +164,20 @@ function setupGameHandlers(bot) {
     try {
       if (fs.existsSync(imagePath)) {
         const photoInput = { source: fs.createReadStream(imagePath) };
-        if (ctx) {
-          await ctx.deleteMessage().catch(() => {});
-          await ctx.replyWithPhoto(photoInput, { caption: summaryText, parse_mode: 'Markdown', ...resultKeyboard });
-        } else if (table.chatId) {
-          await bot.telegram.sendPhoto(table.chatId, photoInput, { caption: summaryText, parse_mode: 'Markdown', ...resultKeyboard });
+        // GỬI ẢNH KẾT QUẢ MỚI MÀ KHÔNG XÓA TIN NHẮN CŨ ĐỒNG THỜI GIỮ GIAO DIỆN SẠCH SẼ
+        if (table.chatId) {
+          await bot.telegram.sendPhoto(table.chatId, photoInput, { 
+            caption: summaryText, 
+            parse_Mode: 'Markdown', 
+            ...resultKeyboard 
+          });
         }
       } else {
-        if (ctx) {
-          await ctx.editMessageText(summaryText, { parse_mode: 'Markdown', ...resultKeyboard });
-        } else if (table.chatId && table.messageId) {
-          await bot.telegram.editMessageText(table.chatId, table.messageId, null, summaryText, { parse_mode: 'Markdown', ...resultKeyboard });
+        if (table.chatId && table.messageId) {
+          await bot.telegram.editMessageText(table.chatId, table.messageId, null, summaryText, { 
+            parse_mode: 'Markdown', 
+            ...resultKeyboard 
+          });
         }
       }
     } catch (err) {
