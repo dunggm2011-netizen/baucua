@@ -22,7 +22,7 @@ function setupGameHandlers(bot) {
     let db = readDB();
     const userBalance = db.users[userId]?.balance || 0;
 
-    if (userBalance < 1000000) {
+    if (userBalance < 100000) {
       return ctx.answerCbQuery('⚠️ Bạn cần tối thiểu 1.000.000 điểm để làm cái!', { show_alert: true });
     }
 
