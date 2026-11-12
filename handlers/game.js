@@ -141,7 +141,7 @@ function setupGameHandlers(bot) {
     }, 1000);
   }
 
-  // 3. NÚT SÓC (Dành cho chủ xị)
+  // 3. NÚT SÓC
   bot.action(/roll_(.+)/, async (ctx) => {
     try { await ctx.answerCbQuery('🎲 Đang sóc...'); } catch (e) {}
 
@@ -297,7 +297,6 @@ function setupGameHandlers(bot) {
         summaryText += `\n👑 Chủ xị tổng kết: **${hostNetChange >= 0 ? '+' : ''}${Math.round(hostNetChange).toLocaleString()} điểm**`;
       }
 
-      // Xoá bàn khỏi database
       delete db.tables[tableId];
       writeDB(db);
 
@@ -306,7 +305,7 @@ function setupGameHandlers(bot) {
         [Markup.button.callback('🗑️ Xóa bàn', `close_table_${hostId}`)]
       ]);
 
-      // Hiển thị kết quả dạng TEXT trước để không bị xoay loading
+      // Hiển thị kết quả dạng TEXT (nhanh)
       try {
         await bot.telegram.editMessageText(
           table.chatId, table.messageId, null,
@@ -317,7 +316,7 @@ function setupGameHandlers(bot) {
         await bot.telegram.sendMessage(table.chatId, summaryText, { parse_mode: 'Markdown', ...resultKeyboard }).catch(() => {});
       }
 
-      // Gửi ảnh con vật dưới dạng tin nhắn mới
+      // Gửi ảnh con vật (chạy ngầm)
       const mainResultAnimal = resultDice[0];
       const imageName = ANIMAL_IMAGES[mainResultAnimal] || 'bau.jpg';
       const imagePath = path.join(__dirname, '../assets', imageName);
@@ -339,53 +338,63 @@ function setupGameHandlers(bot) {
     }
   }
 
-  // 6. NÚT VÁN TIẾP THEO
+  // 6. NÚT VÁN TIẾP THEO (Đã tối ưu xoá + gửi mới để không lag)
   bot.action(/nextgame_(.+)/, async (ctx) => {
     try { await ctx.answerCbQuery('🔄 Đang tạo ván mới...'); } catch (e) {}
 
-    const hostId = ctx.match[1];
-    const userId = ctx.from.id;
+    try {
+      const hostId = ctx.match[1];
+      const userId = ctx.from.id;
 
-    if (String(hostId) !== String(userId)) {
-      return ctx.reply('⚠️ Chỉ chủ xị mới có quyền tạo ván tiếp theo!');
-    }
+      if (String(hostId) !== String(userId)) {
+        return ctx.reply('⚠️ Chỉ chủ xị mới có quyền tạo ván tiếp theo!');
+      }
 
-    let db = readDB();
-    const userBalance = db.users[userId]?.balance || 0;
+      let db = readDB();
+      const userBalance = db.users[userId]?.balance || 0;
 
-    if (userBalance < 100000) {
-      return ctx.reply('⚠️ Bạn cần tối thiểu 100.000 điểm để tiếp tục làm cái!');
-    }
+      if (userBalance < 100000) {
+        return ctx.reply('⚠️ Bạn cần tối thiểu 100.000 điểm để tiếp tục làm cái!');
+      }
 
-    const tableId = `table_${Date.now()}`;
-    const preGeneratedResult = [
-      ANIMALS[Math.floor(Math.random() * ANIMALS.length)],
-      ANIMALS[Math.floor(Math.random() * ANIMALS.length)],
-      ANIMALS[Math.floor(Math.random() * ANIMALS.length)]
-    ];
+      const tableId = `table_${Date.now()}`;
+      const preGeneratedResult = [
+        ANIMALS[Math.floor(Math.random() * ANIMALS.length)],
+        ANIMALS[Math.floor(Math.random() * ANIMALS.length)],
+        ANIMALS[Math.floor(Math.random() * ANIMALS.length)]
+      ];
 
-    db.tables[tableId] = {
-      hostId: userId,
-      status: 'betting',
-      bets: {},
-      preResult: preGeneratedResult,
-      timeLeft: 50,
-      chatId: ctx.chat.id
-    };
-    writeDB(db);
-
-    const sentMsg = await ctx.editMessageText(buildTableText(tableId, db.tables[tableId]), {
-      parse_mode: 'Markdown',
-      ...getTableKeyboard(tableId)
-    });
-
-    db = readDB();
-    if (db.tables[tableId]) {
-      db.tables[tableId].messageId = sentMsg.message_id;
+      db.tables[tableId] = {
+        hostId: userId,
+        status: 'betting',
+        bets: {},
+        preResult: preGeneratedResult,
+        timeLeft: 50,
+        chatId: ctx.chat.id
+      };
       writeDB(db);
-    }
 
-    startCountdown(bot, tableId);
+      // Xoá tin nhắn cũ để tránh nghẽn Edit
+      try {
+        await ctx.deleteMessage();
+      } catch (e) {}
+
+      // Gửi tin nhắn bàn cược mới tinh
+      const sentMsg = await ctx.reply(buildTableText(tableId, db.tables[tableId]), {
+        parse_mode: 'Markdown',
+        ...getTableKeyboard(tableId)
+      });
+
+      db = readDB();
+      if (db.tables[tableId]) {
+        db.tables[tableId].messageId = sentMsg.message_id;
+        writeDB(db);
+      }
+
+      startCountdown(bot, tableId);
+    } catch (err) {
+      console.error('Lỗi tạo ván tiếp:', err.message);
+    }
   });
 
   // 7. NÚT XOÁ BÀN
