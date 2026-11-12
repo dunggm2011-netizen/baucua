@@ -1,0 +1,17 @@
+{
+  "name": "telegram-baucua-bot",
+  "version": "1.0.0",
+  "description": "Bot Telegram Bau Cua P2P Automation",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "express": "^4.21.2",
+    "telegraf": "^4.16.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
