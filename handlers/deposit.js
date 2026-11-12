@@ -48,6 +48,7 @@ function setupDepositHandlers(bot) {
     const accountNo = config.ACCOUNT_NO || '1000405178';
     const accountName = config.ACCOUNT_NAME || 'NGUYEN CONG HOANG KHANG';
 
+    // Link URL VietQR chuẩn
     const qrUrl = `https://img.vietqr.io/image/${bankId}-${accountNo}-compact2.png?amount=${moneyAmount}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(accountName)}`;
 
     let msg = `📥 **THÔNG TIN CHUYỂN KHOẢN NẠP TIỀN**\n\n` +
@@ -62,12 +63,15 @@ function setupDepositHandlers(bot) {
               `⚠️ _Hệ thống sẽ tự động quét API và cộng ${finalPoints.toLocaleString()} điểm sau 15-30 giây khi nhận được tiền._`;
 
     try {
-      await ctx.replyWithPhoto(qrUrl, {
+      // ĐÃ SỬA: Truyền URL trực tiếp dưới dạng object { url: qrUrl } để Telegraf gửi ảnh mượt mà 100%
+      await ctx.replyWithPhoto({ url: qrUrl }, {
         caption: msg,
         parse_mode: 'Markdown'
       });
     } catch (err) {
-      await ctx.reply(msg, { parse_mode: 'Markdown' });
+      console.error('Lỗi gửi ảnh QR:', err.message);
+      // Dự phòng nếu lỗi gửi ảnh thì gửi text kèm link QR
+      await ctx.reply(`${msg}\n\n🔗 **Link mã QR của bạn:** ${qrUrl}`, { parse_mode: 'Markdown' });
     }
   });
 }
