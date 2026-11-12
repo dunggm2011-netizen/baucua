@@ -22,8 +22,9 @@ function setupGameHandlers(bot) {
     let db = readDB();
     const userBalance = db.users[userId]?.balance || 0;
 
+    // Điều kiện tạo bàn: tối thiểu 100.000 điểm
     if (userBalance < 100000) {
-      return ctx.answerCbQuery('⚠️ Bạn cần tối thiểu 1.000.000 điểm để làm cái!', { show_alert: true });
+      return ctx.answerCbQuery('⚠️ Bạn cần tối thiểu 100.000 điểm để làm cái!', { show_alert: true });
     }
 
     const tableId = `table_${Date.now()}`;
@@ -86,7 +87,7 @@ function setupGameHandlers(bot) {
     ]);
   }
 
-  // Đếm ngược từng giây, tự động mở bát ngay khi về mốc 1 giây cuối cùng
+  // Đếm ngược mượt mà, chạm mốc 2 giây là tự động mở bát ngay lập tức không bị khựng
   function startCountdown(bot, tableId) {
     const timer = setInterval(async () => {
       try {
@@ -100,7 +101,7 @@ function setupGameHandlers(bot) {
 
         table.timeLeft -= 1;
 
-        if (table.timeLeft <= 1) {
+        if (table.timeLeft <= 2) {
           clearInterval(timer);
           await executeRoll(bot, tableId, true);
         } else {
