@@ -14,7 +14,6 @@ const ANIMAL_IMAGES = {
   'Tôm': 'tom.jpg'
 };
 
-// Bộ nhớ tạm lưu trạng thái người chơi đang chọn cược con vật nào: userBetStates[userId] = { tableId, choice }
 const userBetStates = {};
 
 function setupGameHandlers(bot) {
@@ -56,7 +55,6 @@ function setupGameHandlers(bot) {
   });
 
   function buildTableText(tableId, table) {
-    // Thống kê tổng tiền cược các cửa hiển thị lên bảng
     let betSummary = "";
     if (table.bets) {
       const totals = {};
@@ -88,6 +86,7 @@ function setupGameHandlers(bot) {
     ]);
   }
 
+  // ĐÃ SỬA: Đếm ngược từng giây (1000ms) để đồng hồ chạy mượt và không bị đứng ở 5s
   function startCountdown(bot, tableId) {
     const timer = setInterval(async () => {
       try {
@@ -99,28 +98,30 @@ function setupGameHandlers(bot) {
           return;
         }
 
-        table.timeLeft -= 5;
+        table.timeLeft -= 1;
 
         if (table.timeLeft <= 0) {
           clearInterval(timer);
           await executeRoll(bot, tableId, true);
         } else {
           writeDB(db);
-          await bot.telegram.editMessageText(
-            table.chatId,
-            table.messageId,
-            null,
-            buildTableText(tableId, table),
-            { parse_mode: 'Markdown', ...getTableKeyboard(tableId) }
-          );
+          // Chỉ cập nhật tin nhắn mỗi 5 giây 1 lần để tránh bị lỗi Flood Wait của Telegram, nhưng vẫn lưu thời gian thật vào DB
+          if (table.timeLeft % 5 === 0 || table.timeLeft <= 5) {
+            await bot.telegram.editMessageText(
+              table.chatId,
+              table.messageId,
+              null,
+              buildTableText(tableId, table),
+              { parse_mode: 'Markdown', ...getTableKeyboard(tableId) }
+            );
+          }
         }
       } catch (err) {
         console.error('Lỗi ở bộ đếm ngược:', err.message);
       }
-    }, 5000);
+    }, 1000);
   }
 
-  // Khi người chơi bấm nút con vật
   bot.action(/bet_(.+)_(.+)/, (ctx) => {
     const tableId = ctx.match[1];
     const choice = ctx.match[2];
@@ -131,19 +132,16 @@ function setupGameHandlers(bot) {
     }
 
     const userId = ctx.from.id.toString();
-    // Lưu lại trạng thái người chơi đang chọn cược cửa này
     userBetStates[userId] = { tableId, choice };
 
     ctx.answerCbQuery(`Đã chọn cửa [${choice}]. Gửi số điểm cược vào khung chat (ví dụ: 1000):`);
   });
 
-  // Lắng nghe tin nhắn số tiền người chơi nhập vào chat để đặt cược
   bot.on('text', async (ctx, next) => {
     const userId = ctx.from.id.toString();
-    if (!userBetStates[userId]) return next(); // Nếu không ở trạng thái cược thì bỏ qua cho handler khác (như admin)
+    if (!userBetStates[userId]) return next();
 
     const text = ctx.message.text.trim();
-    // Kiểm tra xem có phải người chơi đang nhập số tiền hợp lệ không (số nguyên dương)
     const amount = parseInt(text, 10);
     if (isNaN(amount) || amount <= 0) {
       delete userBetStates[userId];
@@ -151,7 +149,7 @@ function setupGameHandlers(bot) {
     }
 
     const { tableId, choice } = userBetStates[userId];
-    delete userBetStates[userId]; // Xóa trạng thái sau khi đã nhận
+    delete userBetStates[userId];
 
     let db = readDB();
     const table = db.tables[tableId];
@@ -167,7 +165,6 @@ function setupGameHandlers(bot) {
       return ctx.reply('⚠️ Mức cược phải từ 100 đến 100.000 điểm!');
     }
 
-    // Trừ tạm số dư người chơi hoặc ghi nhận vào bàn
     db.users[userId].balance -= amount;
     
     if (!table.bets[userId]) table.bets[userId] = {};
@@ -177,7 +174,6 @@ function setupGameHandlers(bot) {
 
     await ctx.reply(`✅ Đã đặt cược thành công **${amount.toLocaleString()} điểm** vào cửa **${choice}**!`, { parse_mode: 'Markdown' });
 
-    // Cập nhật lại giao diện bàn chơi hiển thị tổng cược mới
     try {
       await bot.telegram.editMessageText(
         table.chatId,
