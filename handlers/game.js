@@ -86,7 +86,7 @@ function setupGameHandlers(bot) {
     ]);
   }
 
-  // ĐÃ SỬA: Đếm ngược từng giây (1000ms) để đồng hồ chạy mượt và không bị đứng ở 5s
+  // Đếm ngược từng giây, tự động mở bát ngay khi về mốc 1 giây cuối cùng
   function startCountdown(bot, tableId) {
     const timer = setInterval(async () => {
       try {
@@ -100,13 +100,12 @@ function setupGameHandlers(bot) {
 
         table.timeLeft -= 1;
 
-        if (table.timeLeft <= 0) {
+        if (table.timeLeft <= 1) {
           clearInterval(timer);
           await executeRoll(bot, tableId, true);
         } else {
           writeDB(db);
-          // Chỉ cập nhật tin nhắn mỗi 5 giây 1 lần để tránh bị lỗi Flood Wait của Telegram, nhưng vẫn lưu thời gian thật vào DB
-          if (table.timeLeft % 5 === 0 || table.timeLeft <= 5) {
+          if (table.timeLeft % 10 === 0 || table.timeLeft <= 5) {
             await bot.telegram.editMessageText(
               table.chatId,
               table.messageId,
