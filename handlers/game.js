@@ -15,6 +15,7 @@ const ANIMAL_IMAGES = {
 };
 
 const userBetStates = {};
+const BET_STATE_TIMEOUT = 60 * 1000; // 60s để nhập tiền cược
 
 function setupGameHandlers(bot) {
   bot.action('taoban', async (ctx) => {
@@ -48,9 +49,12 @@ function setupGameHandlers(bot) {
       ...getTableKeyboard(tableId)
     });
 
-    db.tables[tableId].chatId = ctx.chat.id;
-    db.tables[tableId].messageId = sentMsg.message_id;
-    writeDB(db);
+    db = readDB(); // đọc lại để tránh ghi đè nếu có thay đổi khác
+    if (db.tables[tableId]) {
+      db.tables[tableId].chatId = ctx.chat.id;
+      db.tables[tableId].messageId = sentMsg.message_id;
+      writeDB(db);
+    }
 
     startCountdown(bot, tableId);
   });
@@ -87,7 +91,6 @@ function setupGameHandlers(bot) {
     ]);
   }
 
-  // Đếm ngược mượt mà, chạm mốc 2 giây là tự động mở bát ngay lập tức không bị khựng
   function startCountdown(bot, tableId) {
     const timer = setInterval(async () => {
       try {
@@ -99,22 +102,29 @@ function setupGameHandlers(bot) {
           return;
         }
 
-        table.timeLeft -= 1;
-
-        if (table.timeLeft <= 2) {
+        // Mở bát khi đã hết giờ (timeLeft đang là 1, sắp về 0)
+        if (table.timeLeft <= 1) {
           clearInterval(timer);
-          await executeRoll(bot, tableId, true);
-        } else {
+          table.timeLeft = 0;
           writeDB(db);
-          if (table.timeLeft % 10 === 0 || table.timeLeft <= 5) {
-            await bot.telegram.editMessageText(
-              table.chatId,
-              table.messageId,
-              null,
-              buildTableText(tableId, table),
-              { parse_mode: 'Markdown', ...getTableKeyboard(tableId) }
-            );
-          }
+          await executeRoll(bot, tableId, true);
+          return;
+        }
+
+        table.timeLeft -= 1;
+        writeDB(db);
+
+        // Update mỗi giây để đếm lùi mượt, không bị "đứng" ở bất kỳ số nào
+        try {
+          await bot.telegram.editMessageText(
+            table.chatId,
+            table.messageId,
+            null,
+            buildTableText(tableId, table),
+            { parse_mode: 'Markdown', ...getTableKeyboard(tableId) }
+          );
+        } catch (e) {
+          // Message có thể đã bị xoá hoặc không đổi nội dung → bỏ qua
         }
       } catch (err) {
         console.error('Lỗi ở bộ đếm ngược:', err.message);
@@ -126,13 +136,26 @@ function setupGameHandlers(bot) {
     const tableId = ctx.match[1];
     const choice = ctx.match[2];
     let db = readDB();
-    
+
     if (!db.tables[tableId] || db.tables[tableId].status !== 'betting') {
       return ctx.answerCbQuery('⚠️ Bàn chơi đã kết thúc hoặc không tồn tại!', { show_alert: true });
     }
 
     const userId = ctx.from.id.toString();
-    userBetStates[userId] = { tableId, choice };
+
+    // Xoá state cũ nếu có timeout trước đó
+    if (userBetStates[userId]?.timeoutId) {
+      clearTimeout(userBetStates[userId].timeoutId);
+    }
+
+    // Đặt timeout tự xoá state nếu user không nhập tiền trong 60s
+    const timeoutId = setTimeout(() => {
+      if (userBetStates[userId]) {
+        delete userBetStates[userId];
+      }
+    }, BET_STATE_TIMEOUT);
+
+    userBetStates[userId] = { tableId, choice, timeoutId };
 
     ctx.answerCbQuery(`Đã chọn cửa [${choice}]. Gửi số điểm cược vào khung chat (ví dụ: 1000):`);
   });
@@ -142,13 +165,17 @@ function setupGameHandlers(bot) {
     if (!userBetStates[userId]) return next();
 
     const text = ctx.message.text.trim();
-    const amount = parseInt(text, 10);
-    if (isNaN(amount) || amount <= 0) {
+    const amount = Number(text);
+
+    // Chỉ chấp nhận số nguyên dương (chặn "1000abc")
+    if (!Number.isInteger(amount) || amount <= 0) {
+      if (userBetStates[userId]?.timeoutId) clearTimeout(userBetStates[userId].timeoutId);
       delete userBetStates[userId];
       return ctx.reply('⚠️ Số tiền cược không hợp lệ. Vui lòng bấm lại nút con vật để cược!');
     }
 
-    const { tableId, choice } = userBetStates[userId];
+    const { tableId, choice, timeoutId } = userBetStates[userId];
+    if (timeoutId) clearTimeout(timeoutId);
     delete userBetStates[userId];
 
     let db = readDB();
@@ -157,7 +184,12 @@ function setupGameHandlers(bot) {
       return ctx.reply('⚠️ Bàn chơi đã hết thời gian cược!');
     }
 
-    if (!db.users[userId] || db.users[userId].balance < amount) {
+    // Đảm bảo user tồn tại trong DB
+    if (!db.users[userId]) {
+      db.users[userId] = { balance: 0 };
+    }
+
+    if (db.users[userId].balance < amount) {
       return ctx.reply(`⚠️ Số dư của bạn không đủ ${amount.toLocaleString()} điểm để cược!`);
     }
 
@@ -166,10 +198,10 @@ function setupGameHandlers(bot) {
     }
 
     db.users[userId].balance -= amount;
-    
+
     if (!table.bets[userId]) table.bets[userId] = {};
     table.bets[userId][choice] = (table.bets[userId][choice] || 0) + amount;
-    
+
     writeDB(db);
 
     await ctx.reply(`✅ Đã đặt cược thành công **${amount.toLocaleString()} điểm** vào cửa **${choice}**!`, { parse_mode: 'Markdown' });
@@ -204,7 +236,7 @@ function setupGameHandlers(bot) {
 
       if (table.bets && Object.keys(table.bets).length > 0) {
         for (const [playerId, userBets] of Object.entries(table.bets)) {
-          if (!db.users[playerId]) continue;
+          if (!db.users[playerId]) db.users[playerId] = { balance: 0 };
           let playerTotalBet = 0, playerTotalPayout = 0;
           for (const [animal, amount] of Object.entries(userBets)) {
             playerTotalBet += amount;
@@ -241,17 +273,17 @@ function setupGameHandlers(bot) {
       if (fs.existsSync(imagePath)) {
         const photoInput = { source: fs.createReadStream(imagePath) };
         if (table.chatId) {
-          await bot.telegram.sendPhoto(table.chatId, photoInput, { 
-            caption: summaryText, 
-            parse_mode: 'Markdown', 
-            ...resultKeyboard 
+          await bot.telegram.sendPhoto(table.chatId, photoInput, {
+            caption: summaryText,
+            parse_mode: 'Markdown',
+            ...resultKeyboard
           });
         }
       } else {
         if (table.chatId && table.messageId) {
-          await bot.telegram.editMessageText(table.chatId, table.messageId, null, summaryText, { 
-            parse_mode: 'Markdown', 
-            ...resultKeyboard 
+          await bot.telegram.editMessageText(table.chatId, table.messageId, null, summaryText, {
+            parse_mode: 'Markdown',
+            ...resultKeyboard
           });
         }
       }
